@@ -1,0 +1,340 @@
+import { useState, useEffect } from 'react'
+import type { ConditionSpec, StrategyConfig, IndicatorMeta, PresetStrategy, StrategiesResponse } from '../lib/api'
+import { fetchStrategies } from '../lib/api'
+
+interface Props {
+  onRun: (config: StrategyConfig) => void
+  loading: boolean
+}
+
+const PERIODS = ['1mo', '3mo', '6mo', '1y', '2y', '5y']
+const INTERVALS = ['1d', '1wk']
+const CONDITION_TYPES = [
+  { id: 'crosses_above', name: 'Crosses Above' },
+  { id: 'crosses_below', name: 'Crosses Below' },
+  { id: 'above', name: 'Is Above' },
+  { id: 'below', name: 'Is Below' },
+]
+
+function makeDefaultCondition(): ConditionSpec {
+  return {
+    indicator: 'SMA',
+    params: { period: 20 },
+    condition: 'crosses_above',
+    target: { indicator: 'SMA', params: { period: 50 } },
+  }
+}
+
+function ConditionRow({
+  cond,
+  indicators,
+  onChange,
+  onRemove,
+}: {
+  cond: ConditionSpec
+  indicators: IndicatorMeta[]
+  onChange: (c: ConditionSpec) => void
+  onRemove: () => void
+}) {
+  const leftMeta = indicators.find(i => i.id === cond.indicator)
+  const isTargetValue = cond.target && 'value' in cond.target && cond.target.value !== undefined
+
+  function setLeft(id: string) {
+    const meta = indicators.find(i => i.id === id)
+    const params: Record<string, number> = {}
+    meta?.params.forEach(p => { params[p.name] = p.default })
+    onChange({ ...cond, indicator: id, params })
+  }
+
+  function setTargetType(toValue: boolean) {
+    if (toValue) {
+      onChange({ ...cond, target: { value: 30 } })
+    } else {
+      const meta = indicators.find(i => i.id !== cond.indicator) || indicators[0]
+      const params: Record<string, number> = {}
+      meta?.params.forEach(p => { params[p.name] = p.default })
+      onChange({ ...cond, target: { indicator: meta?.id || 'SMA', params } })
+    }
+  }
+
+  function setTargetIndicator(id: string) {
+    const meta = indicators.find(i => i.id === id)
+    const params: Record<string, number> = {}
+    meta?.params.forEach(p => { params[p.name] = p.default })
+    onChange({ ...cond, target: { indicator: id, params } })
+  }
+
+  const targetMeta = !isTargetValue
+    ? indicators.find(i => i.id === (cond.target as { indicator: string }).indicator)
+    : null
+
+  return (
+    <div className="bg-gray-800 rounded-lg p-3 space-y-2">
+      <div className="flex gap-2 items-center flex-wrap">
+        {/* Left indicator */}
+        <select
+          value={cond.indicator}
+          onChange={e => setLeft(e.target.value)}
+          className="bg-gray-700 text-white rounded px-2 py-1 text-sm"
+        >
+          {indicators.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+        </select>
+
+        {/* Left params */}
+        {leftMeta?.params.map(p => (
+          <input
+            key={p.name}
+            type="number"
+            value={cond.params[p.name] ?? p.default}
+            min={p.min}
+            max={p.max}
+            onChange={e => onChange({ ...cond, params: { ...cond.params, [p.name]: Number(e.target.value) } })}
+            className="bg-gray-700 text-white rounded px-2 py-1 text-sm w-20"
+            title={p.name}
+            placeholder={p.name}
+          />
+        ))}
+
+        {/* Condition type */}
+        <select
+          value={cond.condition}
+          onChange={e => onChange({ ...cond, condition: e.target.value })}
+          className="bg-amber-700 text-white rounded px-2 py-1 text-sm"
+        >
+          {CONDITION_TYPES.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+
+        {/* Target type toggle */}
+        <button
+          onClick={() => setTargetType(!isTargetValue)}
+          className="text-xs text-gray-400 border border-gray-600 rounded px-2 py-1 hover:border-amber-500"
+        >
+          {isTargetValue ? 'Fixed Value' : 'Indicator'}
+        </button>
+
+        {isTargetValue ? (
+          <input
+            type="number"
+            value={(cond.target as { value: number }).value}
+            onChange={e => onChange({ ...cond, target: { value: Number(e.target.value) } })}
+            className="bg-gray-700 text-white rounded px-2 py-1 text-sm w-24"
+          />
+        ) : (
+          <>
+            <select
+              value={(cond.target as { indicator: string }).indicator || 'SMA'}
+              onChange={e => setTargetIndicator(e.target.value)}
+              className="bg-gray-700 text-white rounded px-2 py-1 text-sm"
+            >
+              {indicators.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+            </select>
+            {targetMeta?.params.map(p => {
+              const tParams = (cond.target as { params?: Record<string, number> }).params || {}
+              return (
+                <input
+                  key={p.name}
+                  type="number"
+                  value={tParams[p.name] ?? p.default}
+                  min={p.min}
+                  max={p.max}
+                  onChange={e =>
+                    onChange({
+                      ...cond,
+                      target: {
+                        ...(cond.target as object),
+                        params: { ...tParams, [p.name]: Number(e.target.value) },
+                      },
+                    })
+                  }
+                  className="bg-gray-700 text-white rounded px-2 py-1 text-sm w-20"
+                  placeholder={p.name}
+                />
+              )
+            })}
+          </>
+        )}
+
+        <button onClick={onRemove} className="ml-auto text-red-400 hover:text-red-300 text-sm">✕</button>
+      </div>
+    </div>
+  )
+}
+
+export default function StrategyBuilder({ onRun, loading }: Props) {
+  const [meta, setMeta] = useState<StrategiesResponse | null>(null)
+  const [period, setPeriod] = useState('1y')
+  const [interval, setInterval] = useState('1d')
+  const [capital, setCapital] = useState(10000)
+  const [entryConditions, setEntryConditions] = useState<ConditionSpec[]>([makeDefaultCondition()])
+  const [exitConditions, setExitConditions] = useState<ConditionSpec[]>([{
+    indicator: 'SMA',
+    params: { period: 20 },
+    condition: 'crosses_below',
+    target: { indicator: 'SMA', params: { period: 50 } },
+  }])
+  const [entryLogic, setEntryLogic] = useState<'AND' | 'OR'>('AND')
+  const [exitLogic, setExitLogic] = useState<'AND' | 'OR'>('AND')
+  const [stopLoss, setStopLoss] = useState(0)
+  const [takeProfit, setTakeProfit] = useState(0)
+  const [selectedPreset, setSelectedPreset] = useState('')
+
+  useEffect(() => {
+    fetchStrategies().then(setMeta).catch(console.error)
+  }, [])
+
+  function applyPreset(id: string) {
+    if (!meta) return
+    const p = meta.preset_strategies.find(s => s.id === id)
+    if (!p) return
+    setSelectedPreset(id)
+    setPeriod(p.period)
+    setInterval(p.interval)
+    setCapital(p.initial_capital)
+    setEntryConditions(p.entry_conditions as ConditionSpec[])
+    setExitConditions(p.exit_conditions as ConditionSpec[])
+    setEntryLogic(p.entry_logic as 'AND' | 'OR')
+    setExitLogic(p.exit_logic as 'AND' | 'OR')
+    setStopLoss(p.stop_loss_pct)
+    setTakeProfit(p.take_profit_pct)
+  }
+
+  function handleRun() {
+    onRun({
+      period,
+      interval,
+      initial_capital: capital,
+      entry_conditions: entryConditions,
+      entry_logic: entryLogic,
+      exit_conditions: exitConditions,
+      exit_logic: exitLogic,
+      stop_loss_pct: stopLoss,
+      take_profit_pct: takeProfit,
+    })
+  }
+
+  const indicators = meta?.indicators || []
+
+  return (
+    <div className="space-y-4">
+      {/* Presets */}
+      {meta && (
+        <div>
+          <label className="text-xs text-gray-400 block mb-1">プリセット戦略</label>
+          <div className="flex flex-wrap gap-2">
+            {meta.preset_strategies.map(p => (
+              <button
+                key={p.id}
+                onClick={() => applyPreset(p.id)}
+                className={`text-xs px-3 py-1.5 rounded border transition-colors ${
+                  selectedPreset === p.id
+                    ? 'bg-amber-500 border-amber-500 text-black'
+                    : 'border-gray-600 text-gray-300 hover:border-amber-500'
+                }`}
+                title={p.description}
+              >
+                {p.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Period / Interval / Capital */}
+      <div className="grid grid-cols-3 gap-3">
+        <div>
+          <label className="text-xs text-gray-400 block mb-1">期間</label>
+          <select value={period} onChange={e => setPeriod(e.target.value)}
+            className="w-full bg-gray-700 text-white rounded px-2 py-1.5 text-sm">
+            {PERIODS.map(p => <option key={p}>{p}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="text-xs text-gray-400 block mb-1">インターバル</label>
+          <select value={interval} onChange={e => setInterval(e.target.value)}
+            className="w-full bg-gray-700 text-white rounded px-2 py-1.5 text-sm">
+            {INTERVALS.map(i => <option key={i}>{i}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="text-xs text-gray-400 block mb-1">初期資金 ($)</label>
+          <input type="number" value={capital} onChange={e => setCapital(Number(e.target.value))}
+            className="w-full bg-gray-700 text-white rounded px-2 py-1.5 text-sm" />
+        </div>
+      </div>
+
+      {/* Entry conditions */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-sm text-green-400 font-medium">エントリー条件</span>
+          <div className="flex items-center gap-2">
+            <select value={entryLogic} onChange={e => setEntryLogic(e.target.value as 'AND' | 'OR')}
+              className="bg-gray-700 text-white rounded px-2 py-0.5 text-xs">
+              <option>AND</option><option>OR</option>
+            </select>
+            <button
+              onClick={() => setEntryConditions([...entryConditions, makeDefaultCondition()])}
+              className="text-xs text-green-400 border border-green-600 rounded px-2 py-0.5 hover:bg-green-900"
+            >+ 追加</button>
+          </div>
+        </div>
+        <div className="space-y-2">
+          {entryConditions.map((c, i) => (
+            <ConditionRow
+              key={i} cond={c} indicators={indicators}
+              onChange={nc => setEntryConditions(entryConditions.map((x, j) => j === i ? nc : x))}
+              onRemove={() => setEntryConditions(entryConditions.filter((_, j) => j !== i))}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Exit conditions */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-sm text-red-400 font-medium">エグジット条件</span>
+          <div className="flex items-center gap-2">
+            <select value={exitLogic} onChange={e => setExitLogic(e.target.value as 'AND' | 'OR')}
+              className="bg-gray-700 text-white rounded px-2 py-0.5 text-xs">
+              <option>AND</option><option>OR</option>
+            </select>
+            <button
+              onClick={() => setExitConditions([...exitConditions, makeDefaultCondition()])}
+              className="text-xs text-red-400 border border-red-600 rounded px-2 py-0.5 hover:bg-red-900"
+            >+ 追加</button>
+          </div>
+        </div>
+        <div className="space-y-2">
+          {exitConditions.map((c, i) => (
+            <ConditionRow
+              key={i} cond={c} indicators={indicators}
+              onChange={nc => setExitConditions(exitConditions.map((x, j) => j === i ? nc : x))}
+              onRemove={() => setExitConditions(exitConditions.filter((_, j) => j !== i))}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Stop loss / Take profit */}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-xs text-gray-400 block mb-1">損切り (%)</label>
+          <input type="number" min="0" step="0.5" value={stopLoss} onChange={e => setStopLoss(Number(e.target.value))}
+            className="w-full bg-gray-700 text-white rounded px-2 py-1.5 text-sm" placeholder="0 = 無効" />
+        </div>
+        <div>
+          <label className="text-xs text-gray-400 block mb-1">利確 (%)</label>
+          <input type="number" min="0" step="0.5" value={takeProfit} onChange={e => setTakeProfit(Number(e.target.value))}
+            className="w-full bg-gray-700 text-white rounded px-2 py-1.5 text-sm" placeholder="0 = 無効" />
+        </div>
+      </div>
+
+      <button
+        onClick={handleRun}
+        disabled={loading || entryConditions.length === 0 || exitConditions.length === 0}
+        className="w-full py-3 rounded-lg font-semibold bg-amber-500 hover:bg-amber-400 text-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {loading ? 'バックテスト実行中...' : 'バックテスト実行'}
+      </button>
+    </div>
+  )
+}
