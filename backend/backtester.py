@@ -91,15 +91,27 @@ def _max_drawdown(equity: pd.Series) -> float:
     return float(drawdown.min() * 100)
 
 
-def _sharpe_ratio(daily_returns: pd.Series, risk_free_rate: float = 0.05) -> float:
-    if len(daily_returns) < 2:
+def _bars_per_year(interval: str) -> float:
+    """Approximate number of bars per year for annualising Sharpe ratio."""
+    mapping = {
+        "1m": 252 * 390, "2m": 252 * 195, "5m": 252 * 78,
+        "15m": 252 * 26, "30m": 252 * 13, "60m": 252 * 7,
+        "1h": 252 * 7,   "1d": 252,       "5d": 52,
+        "1wk": 52,       "1mo": 12,
+    }
+    return float(mapping.get(interval, 252))
+
+
+def _sharpe_ratio(returns: pd.Series, interval: str = "1d", risk_free_rate: float = 0.05) -> float:
+    if len(returns) < 2:
         return 0.0
-    daily_rf = risk_free_rate / 252
-    excess = daily_returns - daily_rf
+    bpy = _bars_per_year(interval)
+    bar_rf = risk_free_rate / bpy
+    excess = returns - bar_rf
     std = excess.std()
     if std == 0:
         return 0.0
-    return float((excess.mean() / std) * math.sqrt(252))
+    return float((excess.mean() / std) * math.sqrt(bpy))
 
 
 # ---------------------------------------------------------------------------
@@ -381,7 +393,7 @@ def run_backtest(config: dict[str, Any]) -> BacktestResult:
     total_days = (dates[-1] - dates[0]).days
     annualised_return = _annualised_return(total_return_pct, total_days)
     max_dd = _max_drawdown(equity_series)
-    sharpe = _sharpe_ratio(daily_returns)
+    sharpe = _sharpe_ratio(daily_returns, interval)
 
     winning_trades = [t for t in trades if t.pnl > 0]
     losing_trades = [t for t in trades if t.pnl <= 0]
