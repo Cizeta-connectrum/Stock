@@ -105,7 +105,7 @@ export default function ResultsDashboard({ result }: Props) {
       {/* Equity curve */}
       <div className="bg-gray-800 rounded-xl p-4">
         <h3 className="text-sm font-medium text-gray-300 mb-4">資産推移</h3>
-        <ResponsiveContainer width="100%" height={200}>
+        <ResponsiveContainer width="100%" height={160}>
           <LineChart data={equity_curve}>
             <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
             <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#9ca3af' }} tickLine={false}
@@ -125,7 +125,7 @@ export default function ResultsDashboard({ result }: Props) {
       {/* Price chart with indicators and signals */}
       <div className="bg-gray-800 rounded-xl p-4">
         <h3 className="text-sm font-medium text-gray-300 mb-4">ゴールド価格 + 指標</h3>
-        <ResponsiveContainer width="100%" height={280}>
+        <ResponsiveContainer width="100%" height={220}>
           <LineChart data={priceWithIndicators}>
             <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
             <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#9ca3af' }} tickLine={false}
@@ -167,14 +167,14 @@ export default function ResultsDashboard({ result }: Props) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-xs text-gray-400 border-b border-gray-700">
-                  <th className="pb-2 pr-4">方向</th>
-                  <th className="pb-2 pr-4">エントリー日</th>
-                  <th className="pb-2 pr-4">エグジット日</th>
-                  <th className="pb-2 pr-4 text-right">エントリー価格</th>
-                  <th className="pb-2 pr-4 text-right">エグジット価格</th>
-                  <th className="pb-2 pr-4 text-right">損益</th>
-                  <th className="pb-2 pr-4 text-right">損益%</th>
-                  <th className="pb-2 text-right">理由</th>
+                  <th className="pb-2 pr-3">方向</th>
+                  <th className="pb-2 pr-3">エントリー日</th>
+                  <th className="pb-2 pr-3 hidden sm:table-cell">エグジット日</th>
+                  <th className="pb-2 pr-3 text-right hidden md:table-cell">エントリー価格</th>
+                  <th className="pb-2 pr-3 text-right hidden md:table-cell">エグジット価格</th>
+                  <th className="pb-2 pr-3 text-right">損益</th>
+                  <th className="pb-2 pr-3 text-right">損益%</th>
+                  <th className="pb-2 text-right hidden sm:table-cell">理由</th>
                 </tr>
               </thead>
               <tbody>
@@ -187,17 +187,17 @@ export default function ResultsDashboard({ result }: Props) {
                         {t.side === 'short' ? 'S' : 'L'}
                       </span>
                     </td>
-                    <td className="py-1.5 pr-4 text-gray-300">{t.entry_date}</td>
-                    <td className="py-1.5 pr-4 text-gray-300">{t.exit_date}</td>
-                    <td className="py-1.5 pr-4 text-right">${fmt(t.entry_price)}</td>
-                    <td className="py-1.5 pr-4 text-right">${fmt(t.exit_price)}</td>
-                    <td className={`py-1.5 pr-4 text-right ${t.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    <td className="py-1.5 pr-3 text-gray-300 text-xs">{t.entry_date}</td>
+                    <td className="py-1.5 pr-3 text-gray-300 text-xs hidden sm:table-cell">{t.exit_date}</td>
+                    <td className="py-1.5 pr-3 text-right hidden md:table-cell">${fmt(t.entry_price)}</td>
+                    <td className="py-1.5 pr-3 text-right hidden md:table-cell">${fmt(t.exit_price)}</td>
+                    <td className={`py-1.5 pr-3 text-right ${t.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                       {t.pnl >= 0 ? '+' : ''}{fmtCurrency(t.pnl)}
                     </td>
-                    <td className={`py-1.5 pr-4 text-right ${t.pnl_pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    <td className={`py-1.5 pr-3 text-right ${t.pnl_pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                       {t.pnl_pct >= 0 ? '+' : ''}{fmt(t.pnl_pct)}%
                     </td>
-                    <td className="py-1.5 text-right">
+                    <td className="py-1.5 text-right hidden sm:table-cell">
                       <span className={`text-xs px-2 py-0.5 rounded ${
                         t.exit_reason === 'stop_loss' ? 'bg-red-900/50 text-red-300' :
                         t.exit_reason === 'take_profit' ? 'bg-green-900/50 text-green-300' :
