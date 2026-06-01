@@ -2,10 +2,11 @@ import { useState } from 'react'
 import StrategyBuilder from './components/StrategyBuilder'
 import ResultsDashboard from './components/ResultsDashboard'
 import DataManager from './components/DataManager'
+import Optimizer from './components/Optimizer'
 import type { BacktestResult, StrategyConfig } from './lib/api'
 import { runBacktest } from './lib/api'
 
-type Tab = 'backtest' | 'data'
+type Tab = 'backtest' | 'optimize' | 'data'
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('backtest')
@@ -52,6 +53,16 @@ export default function App() {
               バックテスト
             </button>
             <button
+              onClick={() => setTab('optimize')}
+              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                tab === 'optimize'
+                  ? 'bg-amber-500 text-black'
+                  : 'text-gray-400 hover:text-white hover:bg-gray-700'
+              }`}
+            >
+              最適化
+            </button>
+            <button
               onClick={() => setTab('data')}
               className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                 tab === 'data'
@@ -68,6 +79,8 @@ export default function App() {
       <div className="max-w-screen-xl mx-auto p-4 md:p-6">
         {tab === 'data' ? (
           <DataManager />
+        ) : tab === 'optimize' ? (
+          <Optimizer />
         ) : (
           <div className="flex flex-col lg:flex-row gap-6">
             <aside className="lg:w-96 flex-shrink-0">

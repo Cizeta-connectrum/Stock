@@ -92,8 +92,39 @@ export interface StrategiesResponse {
   preset_strategies: PresetStrategy[]
 }
 
+export interface OptimizeRequest {
+  indicator: 'SMA' | 'RSI' | 'BB'
+  period: string
+  interval: string
+  initial_capital: number
+  trading_mode: 'long_only' | 'always_in'
+  stop_loss_pct: number
+  take_profit_pct: number
+  commission_pct: number
+  min_trades: number
+  top_n: number
+}
+
+export interface OptimizeResultRow {
+  label: string
+  params: Record<string, number>
+  profit_factor: number | null
+  total_return_pct: number
+  annualised_return_pct: number
+  sharpe_ratio: number
+  max_drawdown_pct: number
+  win_rate_pct: number
+  num_trades: number
+  final_capital: number
+}
+
 export async function fetchStrategies(): Promise<StrategiesResponse> {
   const res = await axios.get(`${BASE}/api/strategies`)
+  return res.data
+}
+
+export async function runOptimize(req: OptimizeRequest): Promise<{ results: OptimizeResultRow[]; count: number }> {
+  const res = await axios.post(`${BASE}/api/optimize`, req)
   return res.data
 }
 

@@ -16,6 +16,7 @@ from backtester import fetch_gold_data, run_backtest
 from strategies import PRESET_STRATEGIES
 from database import init_db, get_data_status
 from data_manager import download_yfinance, download_twelve_data
+from optimizer import run_optimization
 
 init_db()
 
@@ -195,6 +196,44 @@ async def list_strategies():
             for k, v in PRESET_STRATEGIES.items()
         ],
     }
+
+
+class OptimizeRequest(BaseModel):
+    indicator: str = "SMA"          # "SMA" | "RSI" | "BB"
+    period: str = "1y"
+    interval: str = "1d"
+    initial_capital: float = 10000.0
+    trading_mode: str = "long_only"
+    stop_loss_pct: float = 0.0
+    take_profit_pct: float = 0.0
+    commission_pct: float = 0.1
+    min_trades: int = 5
+    top_n: int = 20
+
+
+@app.post("/api/optimize")
+async def optimize(req: OptimizeRequest):
+    """
+    Grid-search over indicator parameters and return the top combinations ranked by profit factor.
+    """
+    try:
+        results = run_optimization(
+            indicator=req.indicator,
+            period=req.period,
+            interval=req.interval,
+            initial_capital=req.initial_capital,
+            trading_mode=req.trading_mode,
+            stop_loss_pct=req.stop_loss_pct,
+            take_profit_pct=req.take_profit_pct,
+            commission_pct=req.commission_pct,
+            min_trades=req.min_trades,
+            top_n=req.top_n,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Optimization error: {exc}")
+    return {"results": results, "count": len(results)}
 
 
 @app.get("/health")
