@@ -53,6 +53,15 @@ class BacktestResult:
 # Helper utilities
 # ---------------------------------------------------------------------------
 
+def _period_to_days(period: str) -> int:
+    mapping = {
+        "1d": 1, "5d": 5, "1mo": 30, "2mo": 60, "3mo": 90,
+        "6mo": 180, "1y": 365, "2y": 730, "5y": 1825,
+        "10y": 3650, "ytd": 365, "max": 36500,
+    }
+    return mapping.get(period, 365)
+
+
 def _safe_float(val: Any) -> float | None:
     """Convert numpy/pandas scalar to Python float, return None if NaN."""
     if val is None:
@@ -98,7 +107,28 @@ def _sharpe_ratio(daily_returns: pd.Series, risk_free_rate: float = 0.05) -> flo
 # ---------------------------------------------------------------------------
 
 def fetch_gold_data(period: str = "1y", interval: str = "1d") -> pd.DataFrame:
-    """Fetch gold futures OHLCV data from yfinance."""
+    """
+    Fetch gold OHLCV data.
+    Priority: local SQLite DB → yfinance live download.
+    """
+    from database import init_db, load_bars
+    init_db()
+
+    # Try local DB first
+    db_df = load_bars("GOLD", interval)
+    if not db_df.empty:
+        # Filter by requested period
+        end_dt = pd.Timestamp.now(tz="America/New_York")
+        period_days = _period_to_days(period)
+        start_dt = end_dt - pd.Timedelta(days=period_days)
+        db_df.index = pd.to_datetime(db_df.index)
+        if db_df.index.tz is None:
+            db_df.index = db_df.index.tz_localize("UTC").tz_convert("America/New_York")
+        filtered = db_df[db_df.index >= start_dt]
+        if len(filtered) >= 20:
+            return filtered.dropna(subset=["Close"])
+
+    # Fall back to live yfinance download
     tickers = ["GC=F", "GLD", "XAUUSD=X"]
     df = pd.DataFrame()
     last_error = None
@@ -112,7 +142,10 @@ def fetch_gold_data(period: str = "1y", interval: str = "1d") -> pd.DataFrame:
             last_error = e
             continue
     if df.empty:
-        raise ValueError(f"No data returned from yfinance. Last error: {last_error}")
+        raise ValueError(
+            f"ローカルDBにデータがなく、yfinanceからも取得できませんでした。"
+            f"先にデータをダウンロードしてください。(エラー: {last_error})"
+        )
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
     df = df[["Open", "High", "Low", "Close", "Volume"]].copy()

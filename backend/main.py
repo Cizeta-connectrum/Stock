@@ -14,6 +14,10 @@ from pydantic import BaseModel
 
 from backtester import fetch_gold_data, run_backtest
 from strategies import PRESET_STRATEGIES
+from database import init_db, get_data_status
+from data_manager import download_yfinance, download_alpha_vantage
+
+init_db()
 
 
 # ---------------------------------------------------------------------------
@@ -194,6 +198,62 @@ async def list_strategies():
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# Data management endpoints
+# ---------------------------------------------------------------------------
+
+class YFinanceDownloadRequest(BaseModel):
+    interval: str = "5m"
+    days_back: int | None = None
+
+
+class AlphaVantageDownloadRequest(BaseModel):
+    api_key: str
+    interval: str = "5m"
+    months_back: int = 24
+
+
+@app.get("/api/data/status")
+async def data_status():
+    """Return what data is stored locally."""
+    return {"datasets": get_data_status()}
+
+
+@app.post("/api/data/download/yfinance")
+async def download_yf(req: YFinanceDownloadRequest):
+    """
+    Download gold data from yfinance and store in local DB.
+    Limit: 1m=29days, 5m=59days, 1h=729days.
+    """
+    valid = {"1m", "5m", "15m", "30m", "1h", "60m", "1d"}
+    if req.interval not in valid:
+        raise HTTPException(status_code=400, detail=f"interval must be one of {sorted(valid)}")
+    try:
+        result = download_yfinance(req.interval, req.days_back)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return result
+
+
+@app.post("/api/data/download/alphavantage")
+async def download_av(req: AlphaVantageDownloadRequest):
+    """
+    Download gold (XAU/USD) intraday data from Alpha Vantage.
+    Requires a free API key from https://www.alphavantage.co/support/#api-key
+    Free tier: 25 requests/day (= 25 months of data per day).
+    """
+    valid = {"1m", "5m", "15m", "30m", "1h"}
+    if req.interval not in valid:
+        raise HTTPException(status_code=400, detail=f"interval must be one of {sorted(valid)}")
+    if not req.api_key:
+        raise HTTPException(status_code=400, detail="api_key is required")
+    try:
+        result = download_alpha_vantage(req.api_key, req.interval, req.months_back)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return result
 
 
 # ---------------------------------------------------------------------------
