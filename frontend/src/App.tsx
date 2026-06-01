@@ -13,6 +13,12 @@ export default function App() {
   const [result, setResult] = useState<BacktestResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [preloadConfig, setPreloadConfig] = useState<StrategyConfig | null>(null)
+
+  function handleApplyOptimize(config: StrategyConfig) {
+    setPreloadConfig(config)
+    setTab('backtest')
+  }
 
   async function handleRun(config: StrategyConfig) {
     setLoading(true)
@@ -80,7 +86,7 @@ export default function App() {
         {tab === 'data' ? (
           <DataManager />
         ) : tab === 'optimize' ? (
-          <Optimizer />
+          <Optimizer onApply={handleApplyOptimize} />
         ) : (
           <div className="flex flex-col lg:flex-row gap-6">
             <aside className="lg:w-96 flex-shrink-0">
@@ -89,7 +95,7 @@ export default function App() {
                   <span className="w-2 h-2 rounded-full bg-amber-400 inline-block"></span>
                   戦略設定
                 </h2>
-                <StrategyBuilder onRun={handleRun} loading={loading} />
+                <StrategyBuilder onRun={handleRun} loading={loading} preloadConfig={preloadConfig} />
               </div>
             </aside>
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import type { OptimizeRequest, OptimizeResultRow, OptimizeRun } from '../lib/api'
+import type { OptimizeRequest, OptimizeResultRow, OptimizeRun, StrategyConfig, ConditionSpec } from '../lib/api'
 import { runOptimize, fetchOptimizeHistory, deleteOptimizeRun } from '../lib/api'
 
 const PERIOD_OPTIONS = [
@@ -22,6 +22,47 @@ const INDICATOR_OPTIONS: { value: 'SMA' | 'RSI' | 'BB'; label: string; desc: str
   { value: 'BB',  label: 'ボリンジャーバンド', desc: 'period × σ 全組み合わせ' },
 ]
 
+interface RunConfig {
+  indicator: string
+  period: string
+  interval: string
+  trading_mode: 'long_only' | 'always_in'
+  commission: number
+  stop_loss: number
+  take_profit: number
+}
+
+function buildStrategyConfig(row: OptimizeResultRow, run: RunConfig, capital: number): StrategyConfig {
+  const p = row.params
+  let entry: ConditionSpec, exit_: ConditionSpec
+
+  if (run.indicator === 'SMA') {
+    entry = { indicator: 'SMA', params: { period: p.fast }, condition: 'crosses_above', target: { indicator: 'SMA', params: { period: p.slow } } }
+    exit_ = { indicator: 'SMA', params: { period: p.fast }, condition: 'crosses_below', target: { indicator: 'SMA', params: { period: p.slow } } }
+  } else if (run.indicator === 'RSI') {
+    entry = { indicator: 'RSI', params: { period: p.period }, condition: 'crosses_below', target: { value: p.oversold } }
+    exit_ = { indicator: 'RSI', params: { period: p.period }, condition: 'crosses_above', target: { value: p.overbought } }
+  } else {
+    // BB
+    entry = { indicator: 'PRICE', params: {}, condition: 'crosses_below', target: { indicator: 'BB', params: { period: p.period, std_dev: p.std_dev }, sub: 'lower' } }
+    exit_ = { indicator: 'PRICE', params: {}, condition: 'crosses_above', target: { indicator: 'BB', params: { period: p.period, std_dev: p.std_dev }, sub: 'upper' } }
+  }
+
+  return {
+    period: run.period,
+    interval: run.interval,
+    initial_capital: capital,
+    entry_conditions: [entry],
+    entry_logic: 'AND',
+    exit_conditions: [exit_],
+    exit_logic: 'AND',
+    stop_loss_pct: run.stop_loss,
+    take_profit_pct: run.take_profit,
+    commission_pct: run.commission,
+    trading_mode: run.trading_mode,
+  }
+}
+
 function fmt(n: number, d = 2) { return n.toFixed(d) }
 function fmtCurrency(n: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
@@ -32,7 +73,13 @@ function RankBadge({ rank }: { rank: number }) {
   return <span className={`font-bold ${cls}`}>{rank}</span>
 }
 
-function ResultsTable({ rows, globalRank = false }: { rows: (OptimizeResultRow & { _run?: string })[]; globalRank?: boolean }) {
+function ResultsTable({ rows, globalRank = false, runConfig, capital, onApply }: {
+  rows: (OptimizeResultRow & { _run?: string; _runConfig?: RunConfig })[]
+  globalRank?: boolean
+  runConfig?: RunConfig
+  capital?: number
+  onApply?: (config: StrategyConfig) => void
+}) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
@@ -49,10 +96,13 @@ function ResultsTable({ rows, globalRank = false }: { rows: (OptimizeResultRow &
             <th className="px-3 py-2 text-right">勝率</th>
             <th className="px-3 py-2 text-right">取引数</th>
             <th className="px-3 py-2 text-right">最終資産</th>
+            {onApply && <th className="px-3 py-2"></th>}
           </tr>
         </thead>
         <tbody>
-          {rows.map((r, i) => (
+          {rows.map((r, i) => {
+            const rc = r._runConfig ?? runConfig
+            return (
             <tr key={i} className={`border-b border-gray-700/50 hover:bg-gray-700/30 ${i < 3 ? 'bg-amber-900/10' : ''}`}>
               <td className="px-3 py-2"><RankBadge rank={i + 1} /></td>
               {globalRank && <td className="px-3 py-2 text-xs text-gray-500 whitespace-nowrap">{r._run}</td>}
@@ -79,8 +129,19 @@ function ResultsTable({ rows, globalRank = false }: { rows: (OptimizeResultRow &
               <td className={`px-3 py-2 text-right ${r.final_capital >= 10000 ? 'text-green-400' : 'text-red-400'}`}>
                 {fmtCurrency(r.final_capital)}
               </td>
+              {onApply && (
+                <td className="px-3 py-2 text-right">
+                  <button
+                    disabled={!rc}
+                    onClick={() => rc && onApply(buildStrategyConfig(r, rc, capital ?? 10000))}
+                    className="text-xs px-2 py-1 rounded bg-amber-500 hover:bg-amber-400 text-black font-semibold disabled:opacity-30 whitespace-nowrap"
+                  >
+                    ▶ BT
+                  </button>
+                </td>
+              )}
             </tr>
-          ))}
+          )})}
         </tbody>
       </table>
     </div>
@@ -89,7 +150,7 @@ function ResultsTable({ rows, globalRank = false }: { rows: (OptimizeResultRow &
 
 type MainView = 'current' | 'archive' | 'top'
 
-export default function Optimizer() {
+export default function Optimizer({ onApply }: { onApply?: (config: StrategyConfig) => void }) {
   const [indicator, setIndicator] = useState<'SMA' | 'RSI' | 'BB'>('SMA')
   const [period, setPeriod] = useState('1y')
   const [interval, setInterval] = useState('1d')
@@ -155,11 +216,12 @@ export default function Optimizer() {
   }
 
   // Build combined top: take all results from all runs, sort by PF
-  const combinedTop: (OptimizeResultRow & { _run: string })[] = history
+  const combinedTop: (OptimizeResultRow & { _run: string; _runConfig: RunConfig })[] = history
     .flatMap(run =>
       run.results.map(r => ({
         ...r,
         _run: `${run.indicator} ${run.period}/${run.interval}`,
+        _runConfig: { indicator: run.indicator, period: run.period, interval: run.interval, trading_mode: run.trading_mode as 'long_only' | 'always_in', commission: run.commission, stop_loss: run.stop_loss, take_profit: run.take_profit },
       }))
     )
     .sort((a, b) => {
@@ -324,7 +386,12 @@ export default function Optimizer() {
                   </div>
                 ) : (
                   <div className="bg-gray-800 rounded-xl overflow-hidden">
-                    <ResultsTable rows={results} />
+                    <ResultsTable
+                      rows={results}
+                      runConfig={{ indicator, period, interval, trading_mode: tradingMode, commission, stop_loss: stopLoss, take_profit: takeProfit }}
+                      capital={capital}
+                      onApply={onApply}
+                    />
                   </div>
                 )}
                 <p className="text-xs text-gray-500">⚠ 同データでの最適化は過学習リスクがあります。別期間で必ず検証してください。</p>
@@ -373,7 +440,12 @@ export default function Optimizer() {
                     </div>
                   </div>
                   {expandedRun === run.id && (
-                    <ResultsTable rows={run.results} />
+                    <ResultsTable
+                      rows={run.results}
+                      runConfig={{ indicator: run.indicator, period: run.period, interval: run.interval, trading_mode: run.trading_mode as 'long_only' | 'always_in', commission: run.commission, stop_loss: run.stop_loss, take_profit: run.take_profit }}
+                      capital={capital}
+                      onApply={onApply}
+                    />
                   )}
                 </div>
               ))
@@ -394,7 +466,7 @@ export default function Optimizer() {
               </div>
             ) : (
               <div className="bg-gray-800 rounded-xl overflow-hidden">
-                <ResultsTable rows={combinedTop} globalRank />
+                <ResultsTable rows={combinedTop} globalRank capital={capital} onApply={onApply} />
               </div>
             )}
             <p className="text-xs text-gray-500">⚠ 異なる期間・インターバルで最適化した結果は直接比較できません。参考値としてご利用ください。</p>

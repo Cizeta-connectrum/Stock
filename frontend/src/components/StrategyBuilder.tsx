@@ -5,6 +5,7 @@ import { fetchStrategies } from '../lib/api'
 interface Props {
   onRun: (config: StrategyConfig) => void
   loading: boolean
+  preloadConfig?: StrategyConfig | null
 }
 
 const PERIOD_OPTIONS: { value: string; label: string; note?: string }[] = [
@@ -181,7 +182,7 @@ function ConditionRow({
   )
 }
 
-export default function StrategyBuilder({ onRun, loading }: Props) {
+export default function StrategyBuilder({ onRun, loading, preloadConfig }: Props) {
   const [meta, setMeta] = useState<StrategiesResponse | null>(null)
   const [period, setPeriod] = useState('1y')
   const [interval, setInterval] = useState('1d')
@@ -204,6 +205,22 @@ export default function StrategyBuilder({ onRun, loading }: Props) {
   useEffect(() => {
     fetchStrategies().then(setMeta).catch(console.error)
   }, [])
+
+  useEffect(() => {
+    if (!preloadConfig) return
+    setPeriod(preloadConfig.period)
+    setInterval(preloadConfig.interval)
+    setCapital(preloadConfig.initial_capital)
+    setEntryConditions(preloadConfig.entry_conditions)
+    setExitConditions(preloadConfig.exit_conditions)
+    setEntryLogic(preloadConfig.entry_logic)
+    setExitLogic(preloadConfig.exit_logic)
+    setStopLoss(preloadConfig.stop_loss_pct)
+    setTakeProfit(preloadConfig.take_profit_pct)
+    setCommission(preloadConfig.commission_pct)
+    setTradingMode(preloadConfig.trading_mode)
+    setSelectedPreset('')
+  }, [preloadConfig])
 
   function applyPreset(id: string) {
     if (!meta) return

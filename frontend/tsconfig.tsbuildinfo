@@ -1,0 +1,1 @@
+{"root":["./src/App.tsx","./src/main.tsx","./src/components/DataManager.tsx","./src/components/Optimizer.tsx","./src/components/ResultsDashboard.tsx","./src/components/StrategyBuilder.tsx","./src/lib/api.ts"],"version":"5.9.3"}
