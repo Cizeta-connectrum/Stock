@@ -152,7 +152,7 @@ def download_twelve_data(
 
     # We page backwards using end_date, fetching 5000 bars at a time
     current_end = end_date
-    start_dt = pd.Timestamp(start_date)
+    start_dt = pd.Timestamp(start_date, tz="America/New_York")
 
     while True:
         url = (
