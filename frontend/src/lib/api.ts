@@ -20,6 +20,7 @@ export interface StrategyConfig {
   exit_logic: 'AND' | 'OR'
   stop_loss_pct: number
   take_profit_pct: number
+  commission_pct: number
 }
 
 export interface Bar {
@@ -57,6 +58,8 @@ export interface BacktestSummary {
   avg_trade_duration_days: number
   initial_capital: number
   final_capital: number
+  commission_pct: number
+  total_commission: number
   period: string
   interval: string
 }

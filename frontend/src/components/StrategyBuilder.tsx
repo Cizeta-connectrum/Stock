@@ -197,6 +197,7 @@ export default function StrategyBuilder({ onRun, loading }: Props) {
   const [exitLogic, setExitLogic] = useState<'AND' | 'OR'>('AND')
   const [stopLoss, setStopLoss] = useState(0)
   const [takeProfit, setTakeProfit] = useState(0)
+  const [commission, setCommission] = useState(0.1)
   const [selectedPreset, setSelectedPreset] = useState('')
 
   useEffect(() => {
@@ -230,6 +231,7 @@ export default function StrategyBuilder({ onRun, loading }: Props) {
       exit_logic: exitLogic,
       stop_loss_pct: stopLoss,
       take_profit_pct: takeProfit,
+      commission_pct: commission,
     })
   }
 
@@ -342,17 +344,22 @@ export default function StrategyBuilder({ onRun, loading }: Props) {
         </div>
       </div>
 
-      {/* Stop loss / Take profit */}
-      <div className="grid grid-cols-2 gap-3">
+      {/* Stop loss / Take profit / Commission */}
+      <div className="grid grid-cols-3 gap-3">
         <div>
           <label className="text-xs text-gray-400 block mb-1">損切り (%)</label>
-          <input type="number" min="0" step="0.5" value={stopLoss} onChange={e => setStopLoss(Number(e.target.value))}
-            className="w-full bg-gray-700 text-white rounded px-2 py-1.5 text-sm" placeholder="0 = 無効" />
+          <input type="number" min="0" step="0.1" value={stopLoss} onChange={e => setStopLoss(Number(e.target.value))}
+            className="w-full bg-gray-700 text-white rounded px-2 py-1.5 text-sm" placeholder="0=無効" />
         </div>
         <div>
           <label className="text-xs text-gray-400 block mb-1">利確 (%)</label>
-          <input type="number" min="0" step="0.5" value={takeProfit} onChange={e => setTakeProfit(Number(e.target.value))}
-            className="w-full bg-gray-700 text-white rounded px-2 py-1.5 text-sm" placeholder="0 = 無効" />
+          <input type="number" min="0" step="0.1" value={takeProfit} onChange={e => setTakeProfit(Number(e.target.value))}
+            className="w-full bg-gray-700 text-white rounded px-2 py-1.5 text-sm" placeholder="0=無効" />
+        </div>
+        <div>
+          <label className="text-xs text-gray-400 block mb-1">手数料 (%)</label>
+          <input type="number" min="0" step="0.01" value={commission} onChange={e => setCommission(Number(e.target.value))}
+            className="w-full bg-gray-700 text-white rounded px-2 py-1.5 text-sm" placeholder="例: 0.1" />
         </div>
       </div>
 

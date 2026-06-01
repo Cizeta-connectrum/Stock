@@ -290,6 +290,7 @@ def run_backtest(config: dict[str, Any]) -> BacktestResult:
     exit_logic = config.get("exit_logic", "AND")
     stop_loss_pct = float(config.get("stop_loss_pct", 0) or 0)
     take_profit_pct = float(config.get("take_profit_pct", 0) or 0)
+    commission_pct = float(config.get("commission_pct", 0) or 0)  # e.g. 0.1 = 0.1%
 
     # --- Fetch data ---
     df = fetch_gold_data(period, interval)
@@ -319,6 +320,8 @@ def run_backtest(config: dict[str, Any]) -> BacktestResult:
         if position == 0:
             # Check for entry signal
             if entry_signals.iloc[i]:
+                entry_commission = capital * commission_pct / 100
+                capital -= entry_commission
                 shares = capital / price
                 position = shares
                 entry_price = price
@@ -339,7 +342,10 @@ def run_backtest(config: dict[str, Any]) -> BacktestResult:
 
             if exit_reason:
                 exit_value = position * price
+                exit_commission = exit_value * commission_pct / 100
+                exit_value -= exit_commission
                 pnl = exit_value - (position * entry_price)
+                pnl_pct = pnl / (position * entry_price) * 100
                 duration = (dates[i] - dates[entry_index]).days
 
                 trades.append(
@@ -365,8 +371,9 @@ def run_backtest(config: dict[str, Any]) -> BacktestResult:
     if position > 0:
         last_price = prices[-1]
         exit_value = position * last_price
+        exit_value -= exit_value * commission_pct / 100
         pnl = exit_value - (position * entry_price)
-        pnl_pct = (last_price - entry_price) / entry_price * 100
+        pnl_pct = pnl / (position * entry_price) * 100
         duration = (dates[-1] - dates[entry_index]).days
         trades.append(
             Trade(
@@ -420,6 +427,8 @@ def run_backtest(config: dict[str, Any]) -> BacktestResult:
         "avg_trade_duration_days": round(avg_duration, 1),
         "initial_capital": initial_capital,
         "final_capital": round(equity_values[-1], 2),
+        "commission_pct": commission_pct,
+        "total_commission": round(len(trades) * 2 * initial_capital * commission_pct / 100, 2),
         "period": period,
         "interval": interval,
     }
