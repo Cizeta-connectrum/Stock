@@ -123,9 +123,9 @@ def download_alpha_vantage(
     months_back: int = 24,
 ) -> dict:
     """
-    Download gold (XAU) intraday data from Alpha Vantage.
-    Free tier: 25 req/day. Each request = 1 month of data.
-    interval: '1min', '5min', '15min', '30min', '60min'
+    Download gold intraday data from Alpha Vantage using GLD ETF.
+    Free tier: 25 req/day. Each request covers 1 month with month= param.
+    interval: '1m','5m','15m','30m','1h'
     """
     import urllib.request
     import ssl
@@ -135,7 +135,6 @@ def download_alpha_vantage(
     ssl_ctx.check_hostname = False
     ssl_ctx.verify_mode = ssl.CERT_NONE
 
-    # Map our interval names to Alpha Vantage names
     av_interval_map = {
         "1m": "1min", "5m": "5min", "15m": "15min",
         "30m": "30min", "1h": "60min", "60m": "60min",
@@ -144,25 +143,25 @@ def download_alpha_vantage(
     if not av_interval:
         return {"error": f"Alpha Vantage does not support interval: {interval}"}
 
-    # Alpha Vantage uses 'from_currency=XAU' for forex gold
-    # or TIME_SERIES_INTRADAY for ETFs like GLD
-    # We'll use FX_INTRADAY for XAU/USD
     total_bars = 0
     errors = []
 
     for month_offset in range(months_back):
         dt = datetime.now() - timedelta(days=30 * month_offset)
-        year_month = f"year{(month_offset // 12) + 1}month{(month_offset % 12) + 1}"
+        # Alpha Vantage slice parameter: year1month1 ... year2month1 etc
+        year_num = (month_offset // 12) + 1
+        month_num = (month_offset % 12) + 1
+        slice_param = f"year{year_num}month{month_num}"
 
+        # Use TIME_SERIES_INTRADAY with GLD (Gold ETF) — most reliable on free tier
         url = (
             f"https://www.alphavantage.co/query"
-            f"?function=FX_INTRADAY"
-            f"&from_symbol=XAU"
-            f"&to_symbol=USD"
+            f"?function=TIME_SERIES_INTRADAY"
+            f"&symbol=GLD"
             f"&interval={av_interval}"
             f"&outputsize=full"
             f"&extended_hours=false"
-            f"&month={dt.strftime('%Y-%m')}"
+            f"&slice={slice_param}"
             f"&apikey={api_key}"
         )
 
@@ -170,31 +169,44 @@ def download_alpha_vantage(
             with urllib.request.urlopen(url, timeout=30, context=ssl_ctx) as resp:
                 data = json.loads(resp.read())
 
-            if "Error Message" in data or "Note" in data:
-                errors.append(data.get("Error Message") or data.get("Note"))
+            # Surface any API-level errors immediately
+            if "Error Message" in data:
+                errors.append(data["Error Message"])
                 break
-
-            key = f"Time Series FX ({av_interval})"
-            if key not in data:
-                errors.append(f"No data key in response for {dt.strftime('%Y-%m')}")
+            if "Information" in data:
+                # Rate limit hit
+                errors.append(data["Information"])
+                break
+            if "Note" in data:
+                errors.append(data["Note"])
+                time.sleep(60)
                 continue
 
+            key = f"Time Series ({av_interval})"
+            if key not in data:
+                # Log actual keys for debugging
+                actual_keys = list(data.keys())
+                errors.append(f"slice={slice_param}: expected '{key}', got keys={actual_keys}")
+                continue
+
+            ts_data = data[key]
+            if not ts_data:
+                continue
+
+            timestamps = []
             records = []
-            for ts_str, vals in data[key].items():
-                ts = pd.Timestamp(ts_str, tz="America/New_York")
+            for ts_str, vals in ts_data.items():
+                timestamps.append(pd.Timestamp(ts_str, tz="America/New_York"))
                 records.append({
                     "Open":   float(vals["1. open"]),
                     "High":   float(vals["2. high"]),
                     "Low":    float(vals["3. low"]),
                     "Close":  float(vals["4. close"]),
-                    "Volume": 0.0,
+                    "Volume": float(vals.get("5. volume", 0)),
                 })
+
             if records:
-                df = pd.DataFrame(records)
-                df.index = pd.DatetimeIndex([
-                    pd.Timestamp(ts_str, tz="America/New_York")
-                    for ts_str in data[key].keys()
-                ])
+                df = pd.DataFrame(records, index=pd.DatetimeIndex(timestamps))
                 n = upsert_bars("GOLD", interval, df)
                 total_bars += n
 
