@@ -22,6 +22,7 @@ from drive_sync import download_db, upload_db
 
 init_db()
 download_db()  # Restore DB from Google Drive on startup
+init_db()      # Ensure tables exist after DB restore
 
 
 # ---------------------------------------------------------------------------

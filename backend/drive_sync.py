@@ -45,6 +45,7 @@ def download_db() -> bool:
     """Download prices.db from Drive on startup. Returns True if successful."""
     service = _get_service()
     if not service:
+        print("[DriveSync] No credentials configured, skipping download.")
         return False
     try:
         from googleapiclient.http import MediaIoBaseDownload
@@ -53,7 +54,7 @@ def download_db() -> bool:
             print("[DriveSync] No prices.db found in Drive, starting fresh.")
             return False
         DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-        request = service.files().get_media(fileId=file_id)
+        request = service.files().get_media(fileId=file_id, supportsAllDrives=True)
         buf = io.BytesIO()
         downloader = MediaIoBaseDownload(buf, request)
         done = False
@@ -61,7 +62,8 @@ def download_db() -> bool:
             _, done = downloader.next_chunk()
         with open(DB_PATH, "wb") as f:
             f.write(buf.getvalue())
-        print(f"[DriveSync] Downloaded prices.db ({DB_PATH.stat().st_size // 1024} KB)")
+        size_kb = DB_PATH.stat().st_size // 1024
+        print(f"[DriveSync] Downloaded prices.db ({size_kb} KB) ✓")
         return True
     except Exception as e:
         print(f"[DriveSync] Download failed: {e}")
