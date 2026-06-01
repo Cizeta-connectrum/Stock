@@ -160,7 +160,7 @@ def download_twelve_data(
             f"?symbol=GLD"
             f"&interval={td_interval}"
             f"&outputsize=5000"
-            f"&end_date={current_end}"
+            f"&end_date={str(current_end).replace(' ', '%20')}"
             f"&timezone=America/New_York"
             f"&apikey={api_key}"
         )
