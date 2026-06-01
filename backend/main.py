@@ -262,7 +262,7 @@ async def delete_optimize_run(run_id: int):
     return {"deleted": run_id}
 
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 async def health():
     return {"status": "ok"}
 
