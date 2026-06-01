@@ -290,4 +290,58 @@ PRESET_STRATEGIES = {
         "stop_loss_pct": 2.0,
         "take_profit_pct": 4.0,
     },
+    "scalping_ema": {
+        "name": "スキャルピング EMA (5m)",
+        "description": "5分足でEMA3がEMA10をクロス。デイトレード向け。",
+        "period": "1mo",
+        "interval": "5m",
+        "initial_capital": 10000,
+        "entry_conditions": [
+            {
+                "indicator": "EMA",
+                "params": {"period": 3},
+                "condition": "crosses_above",
+                "target": {"indicator": "EMA", "params": {"period": 10}},
+            }
+        ],
+        "entry_logic": "AND",
+        "exit_conditions": [
+            {
+                "indicator": "EMA",
+                "params": {"period": 3},
+                "condition": "crosses_below",
+                "target": {"indicator": "EMA", "params": {"period": 10}},
+            }
+        ],
+        "exit_logic": "AND",
+        "stop_loss_pct": 0.3,
+        "take_profit_pct": 0.6,
+    },
+    "scalping_rsi": {
+        "name": "スキャルピング RSI (5m)",
+        "description": "5分足でRSI30割れでエントリー、70超えでエグジット。",
+        "period": "1mo",
+        "interval": "5m",
+        "initial_capital": 10000,
+        "entry_conditions": [
+            {
+                "indicator": "RSI",
+                "params": {"period": 7},
+                "condition": "below",
+                "target": {"value": 30},
+            }
+        ],
+        "entry_logic": "AND",
+        "exit_conditions": [
+            {
+                "indicator": "RSI",
+                "params": {"period": 7},
+                "condition": "above",
+                "target": {"value": 70},
+            }
+        ],
+        "exit_logic": "AND",
+        "stop_loss_pct": 0.3,
+        "take_profit_pct": 0.6,
+    },
 }

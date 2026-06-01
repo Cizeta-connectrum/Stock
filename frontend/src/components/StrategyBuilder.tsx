@@ -7,8 +7,29 @@ interface Props {
   loading: boolean
 }
 
-const PERIODS = ['1mo', '3mo', '6mo', '1y', '2y', '5y']
-const INTERVALS = ['1d', '1wk']
+const PERIOD_OPTIONS: { value: string; label: string; note?: string }[] = [
+  { value: '5d',  label: '5日',   note: '1m用' },
+  { value: '1mo', label: '1ヶ月', note: '5m/15m用' },
+  { value: '2mo', label: '2ヶ月', note: '5m/15m用' },
+  { value: '3mo', label: '3ヶ月' },
+  { value: '6mo', label: '6ヶ月' },
+  { value: '1y',  label: '1年' },
+  { value: '2y',  label: '2年' },
+  { value: '5y',  label: '5年' },
+]
+
+const INTERVAL_OPTIONS: { value: string; label: string; maxPeriod: string }[] = [
+  { value: '1m',  label: '1分足',  maxPeriod: '最大7日' },
+  { value: '5m',  label: '5分足',  maxPeriod: '最大60日' },
+  { value: '15m', label: '15分足', maxPeriod: '最大60日' },
+  { value: '30m', label: '30分足', maxPeriod: '最大60日' },
+  { value: '1h',  label: '1時間足', maxPeriod: '最大2年' },
+  { value: '1d',  label: '日足',   maxPeriod: '無制限' },
+  { value: '1wk', label: '週足',   maxPeriod: '無制限' },
+]
+
+const PERIODS = PERIOD_OPTIONS.map(p => p.value)
+const INTERVALS = INTERVAL_OPTIONS.map(i => i.value)
 const CONDITION_TYPES = [
   { id: 'crosses_above', name: 'Crosses Above' },
   { id: 'crosses_below', name: 'Crosses Below' },
@@ -245,15 +266,22 @@ export default function StrategyBuilder({ onRun, loading }: Props) {
           <label className="text-xs text-gray-400 block mb-1">期間</label>
           <select value={period} onChange={e => setPeriod(e.target.value)}
             className="w-full bg-gray-700 text-white rounded px-2 py-1.5 text-sm">
-            {PERIODS.map(p => <option key={p}>{p}</option>)}
+            {PERIOD_OPTIONS.map(p => (
+              <option key={p.value} value={p.value}>{p.label}{p.note ? ` (${p.note})` : ''}</option>
+            ))}
           </select>
         </div>
         <div>
           <label className="text-xs text-gray-400 block mb-1">インターバル</label>
           <select value={interval} onChange={e => setInterval(e.target.value)}
             className="w-full bg-gray-700 text-white rounded px-2 py-1.5 text-sm">
-            {INTERVALS.map(i => <option key={i}>{i}</option>)}
+            {INTERVAL_OPTIONS.map(i => (
+              <option key={i.value} value={i.value}>{i.label}</option>
+            ))}
           </select>
+          <div className="text-xs text-gray-500 mt-0.5">
+            {INTERVAL_OPTIONS.find(i => i.value === interval)?.maxPeriod}
+          </div>
         </div>
         <div>
           <label className="text-xs text-gray-400 block mb-1">初期資金 ($)</label>

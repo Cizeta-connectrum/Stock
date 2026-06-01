@@ -72,7 +72,7 @@ async def get_gold_data(
     Fetch gold OHLCV data for the given period and interval.
     Returns a list of bars suitable for charting.
     """
-    valid_periods = {"1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"}
+    valid_periods = {"1d", "5d", "1mo", "2mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"}
     valid_intervals = {"1m", "2m", "5m", "15m", "30m", "60m", "1h", "1d", "5d", "1wk", "1mo"}
 
     if period not in valid_periods:
