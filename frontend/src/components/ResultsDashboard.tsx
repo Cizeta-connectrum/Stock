@@ -143,18 +143,18 @@ export default function ResultsDashboard({ result }: Props) {
                 stroke={maColors[idx % maColors.length]} dot={false} strokeWidth={1.5}
                 strokeDasharray={idx > 0 ? '4 2' : undefined} name={key} connectNulls />
             ))}
-            {/* Buy signals */}
-            {priceWithIndicators
-              .filter(d => d.signal === 'buy')
-              .map(d => (
-                <ReferenceLine key={`buy-${d.date}`} x={d.date as string} stroke="#10b981" strokeWidth={1} strokeDasharray="2 4" />
-              ))}
-            {/* Sell signals */}
-            {priceWithIndicators
-              .filter(d => d.signal === 'sell')
-              .map(d => (
-                <ReferenceLine key={`sell-${d.date}`} x={d.date as string} stroke="#ef4444" strokeWidth={1} strokeDasharray="2 4" />
-              ))}
+            {priceWithIndicators.filter(d => d.signal === 'buy').map(d => (
+              <ReferenceLine key={`buy-${d.date}`} x={d.date as string} stroke="#10b981" strokeWidth={1} strokeDasharray="2 4" />
+            ))}
+            {priceWithIndicators.filter(d => d.signal === 'sell').map(d => (
+              <ReferenceLine key={`sell-${d.date}`} x={d.date as string} stroke="#ef4444" strokeWidth={1} strokeDasharray="2 4" />
+            ))}
+            {priceWithIndicators.filter(d => d.signal === 'short').map(d => (
+              <ReferenceLine key={`short-${d.date}`} x={d.date as string} stroke="#f97316" strokeWidth={1} strokeDasharray="2 4" />
+            ))}
+            {priceWithIndicators.filter(d => d.signal === 'cover').map(d => (
+              <ReferenceLine key={`cover-${d.date}`} x={d.date as string} stroke="#818cf8" strokeWidth={1} strokeDasharray="2 4" />
+            ))}
           </LineChart>
         </ResponsiveContainer>
       </div>
@@ -167,6 +167,7 @@ export default function ResultsDashboard({ result }: Props) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-xs text-gray-400 border-b border-gray-700">
+                  <th className="pb-2 pr-4">方向</th>
                   <th className="pb-2 pr-4">エントリー日</th>
                   <th className="pb-2 pr-4">エグジット日</th>
                   <th className="pb-2 pr-4 text-right">エントリー価格</th>
@@ -179,6 +180,13 @@ export default function ResultsDashboard({ result }: Props) {
               <tbody>
                 {trades.map((t, i) => (
                   <tr key={i} className="border-b border-gray-700/50 hover:bg-gray-700/30">
+                    <td className="py-1.5 pr-4">
+                      <span className={`text-xs px-1.5 py-0.5 rounded font-semibold ${
+                        t.side === 'short' ? 'bg-orange-900/50 text-orange-300' : 'bg-green-900/50 text-green-300'
+                      }`}>
+                        {t.side === 'short' ? 'S' : 'L'}
+                      </span>
+                    </td>
                     <td className="py-1.5 pr-4 text-gray-300">{t.entry_date}</td>
                     <td className="py-1.5 pr-4 text-gray-300">{t.exit_date}</td>
                     <td className="py-1.5 pr-4 text-right">${fmt(t.entry_price)}</td>

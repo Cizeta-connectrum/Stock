@@ -38,6 +38,7 @@ class Trade:
     pnl_pct: float
     exit_reason: str  # "signal" | "stop_loss" | "take_profit" | "end_of_data"
     duration_days: int
+    side: str = "long"  # "long" | "short"
 
 
 @dataclass
@@ -277,6 +278,46 @@ def build_indicator_overlays(
 # Core backtesting loop
 # ---------------------------------------------------------------------------
 
+def _close_long(
+    position: float, entry_capital: float, entry_price: float, entry_date: str,
+    entry_index: int, exit_price: float, exit_date: str, exit_index: int,
+    dates: Any, commission_pct: float, exit_reason: str,
+) -> tuple[float, Trade]:
+    exit_value = position * exit_price
+    exit_commission = exit_value * commission_pct / 100
+    exit_value -= exit_commission
+    pnl = exit_value - entry_capital
+    pnl_pct = pnl / entry_capital * 100
+    duration = (dates[exit_index] - dates[entry_index]).days
+    trade = Trade(
+        entry_date=entry_date, exit_date=exit_date,
+        entry_price=entry_price, exit_price=exit_price,
+        shares=position, pnl=pnl, pnl_pct=pnl_pct,
+        exit_reason=exit_reason, duration_days=duration, side="long",
+    )
+    return exit_value, trade
+
+
+def _close_short(
+    shares: float, entry_capital: float, entry_price: float, entry_date: str,
+    entry_index: int, exit_price: float, exit_date: str, exit_index: int,
+    dates: Any, commission_pct: float, exit_reason: str,
+) -> tuple[float, Trade]:
+    gross = entry_capital + shares * (entry_price - exit_price)
+    exit_commission = abs(gross) * commission_pct / 100
+    exit_value = gross - exit_commission
+    pnl = exit_value - entry_capital
+    pnl_pct = pnl / entry_capital * 100
+    duration = (dates[exit_index] - dates[entry_index]).days
+    trade = Trade(
+        entry_date=entry_date, exit_date=exit_date,
+        entry_price=entry_price, exit_price=exit_price,
+        shares=shares, pnl=pnl, pnl_pct=pnl_pct,
+        exit_reason=exit_reason, duration_days=duration, side="short",
+    )
+    return exit_value, trade
+
+
 def run_backtest(config: dict[str, Any]) -> BacktestResult:
     """
     Execute a backtest given a strategy configuration dict.
@@ -290,7 +331,9 @@ def run_backtest(config: dict[str, Any]) -> BacktestResult:
     exit_logic = config.get("exit_logic", "AND")
     stop_loss_pct = float(config.get("stop_loss_pct", 0) or 0)
     take_profit_pct = float(config.get("take_profit_pct", 0) or 0)
-    commission_pct = float(config.get("commission_pct", 0) or 0)  # e.g. 0.1 = 0.1%
+    commission_pct = float(config.get("commission_pct", 0) or 0)
+    trading_mode = config.get("trading_mode", "long_only")  # "long_only" | "always_in"
+    always_in = trading_mode == "always_in"
 
     # --- Fetch data ---
     df = fetch_gold_data(period, interval)
@@ -301,10 +344,12 @@ def run_backtest(config: dict[str, Any]) -> BacktestResult:
 
     # --- Simulation ---
     capital = initial_capital
-    position: float = 0.0          # shares held
+    position: float = 0.0       # shares (long) or notional shares (short)
+    entry_capital: float = 0.0  # capital committed at entry (after entry commission)
     entry_price: float = 0.0
     entry_date: str = ""
     entry_index: int = -1
+    side: str = "none"           # "none" | "long" | "short"
 
     trades: list[Trade] = []
     equity_values: list[float] = []
@@ -314,81 +359,118 @@ def run_backtest(config: dict[str, Any]) -> BacktestResult:
     n = len(df)
 
     for i in range(n):
-        price = prices[i]
+        price = float(prices[i])
         date_str = str(dates[i].date())
 
-        if position == 0:
-            # Check for entry signal
+        if side == "none":
             if entry_signals.iloc[i]:
-                entry_commission = capital * commission_pct / 100
-                capital -= entry_commission
-                shares = capital / price
-                position = shares
+                # Open long
+                entry_comm = capital * commission_pct / 100
+                capital -= entry_comm
+                entry_capital = capital
+                position = entry_capital / price
                 entry_price = price
                 entry_date = date_str
                 entry_index = i
                 capital = 0.0
-        else:
-            # Check stop loss / take profit first
-            pnl_pct = (price - entry_price) / entry_price * 100
-            exit_reason = None
+                side = "long"
+            elif always_in and exit_signals.iloc[i]:
+                # Open short immediately
+                entry_comm = capital * commission_pct / 100
+                capital -= entry_comm
+                entry_capital = capital
+                position = entry_capital / price
+                entry_price = price
+                entry_date = date_str
+                entry_index = i
+                capital = 0.0
+                side = "short"
 
-            if stop_loss_pct > 0 and pnl_pct <= -stop_loss_pct:
+        elif side == "long":
+            pnl_pct_now = (price - entry_price) / entry_price * 100
+            exit_reason = None
+            if stop_loss_pct > 0 and pnl_pct_now <= -stop_loss_pct:
                 exit_reason = "stop_loss"
-            elif take_profit_pct > 0 and pnl_pct >= take_profit_pct:
+            elif take_profit_pct > 0 and pnl_pct_now >= take_profit_pct:
                 exit_reason = "take_profit"
             elif exit_signals.iloc[i]:
                 exit_reason = "signal"
 
             if exit_reason:
-                exit_value = position * price
-                exit_commission = exit_value * commission_pct / 100
-                exit_value -= exit_commission
-                pnl = exit_value - (position * entry_price)
-                pnl_pct = pnl / (position * entry_price) * 100
-                duration = (dates[i] - dates[entry_index]).days
-
-                trades.append(
-                    Trade(
-                        entry_date=entry_date,
-                        exit_date=date_str,
-                        entry_price=entry_price,
-                        exit_price=price,
-                        shares=position,
-                        pnl=pnl,
-                        pnl_pct=pnl_pct,
-                        exit_reason=exit_reason,
-                        duration_days=duration,
-                    )
+                capital, trade = _close_long(
+                    position, entry_capital, entry_price, entry_date, entry_index,
+                    price, date_str, i, dates, commission_pct, exit_reason,
                 )
-                capital = exit_value
+                trades.append(trade)
                 position = 0.0
+                side = "none"
+                # In always-in mode, immediately open short
+                if always_in:
+                    entry_comm = capital * commission_pct / 100
+                    capital -= entry_comm
+                    entry_capital = capital
+                    position = entry_capital / price
+                    entry_price = price
+                    entry_date = date_str
+                    entry_index = i
+                    capital = 0.0
+                    side = "short"
+
+        elif side == "short":
+            pnl_pct_now = (entry_price - price) / entry_price * 100  # profit when price falls
+            exit_reason = None
+            if stop_loss_pct > 0 and pnl_pct_now <= -stop_loss_pct:
+                exit_reason = "stop_loss"
+            elif take_profit_pct > 0 and pnl_pct_now >= take_profit_pct:
+                exit_reason = "take_profit"
+            elif entry_signals.iloc[i]:
+                exit_reason = "signal"
+
+            if exit_reason:
+                capital, trade = _close_short(
+                    position, entry_capital, entry_price, entry_date, entry_index,
+                    price, date_str, i, dates, commission_pct, exit_reason,
+                )
+                trades.append(trade)
+                position = 0.0
+                side = "none"
+                # In always-in mode, immediately open long
+                if always_in:
+                    entry_comm = capital * commission_pct / 100
+                    capital -= entry_comm
+                    entry_capital = capital
+                    position = entry_capital / price
+                    entry_price = price
+                    entry_date = date_str
+                    entry_index = i
+                    capital = 0.0
+                    side = "long"
 
         # Current equity
-        equity_values.append(capital + position * price)
+        if side == "long":
+            equity_values.append(capital + position * price)
+        elif side == "short":
+            equity_values.append(entry_capital + position * (entry_price - price))
+        else:
+            equity_values.append(capital)
 
     # Close any open position at end
-    if position > 0:
-        last_price = prices[-1]
-        exit_value = position * last_price
-        exit_value -= exit_value * commission_pct / 100
-        pnl = exit_value - (position * entry_price)
-        pnl_pct = pnl / (position * entry_price) * 100
-        duration = (dates[-1] - dates[entry_index]).days
-        trades.append(
-            Trade(
-                entry_date=entry_date,
-                exit_date=str(dates[-1].date()),
-                entry_price=entry_price,
-                exit_price=last_price,
-                shares=position,
-                pnl=pnl,
-                pnl_pct=pnl_pct,
-                exit_reason="end_of_data",
-                duration_days=duration,
-            )
+    if side == "long" and position > 0:
+        last_price = float(prices[-1])
+        capital, trade = _close_long(
+            position, entry_capital, entry_price, entry_date, entry_index,
+            last_price, str(dates[-1].date()), n - 1, dates, commission_pct, "end_of_data",
         )
-        capital = exit_value
+        trades.append(trade)
+        position = 0.0
+        equity_values[-1] = capital
+    elif side == "short" and position > 0:
+        last_price = float(prices[-1])
+        capital, trade = _close_short(
+            position, entry_capital, entry_price, entry_date, entry_index,
+            last_price, str(dates[-1].date()), n - 1, dates, commission_pct, "end_of_data",
+        )
+        trades.append(trade)
         position = 0.0
         equity_values[-1] = capital
 
@@ -449,18 +531,23 @@ def run_backtest(config: dict[str, Any]) -> BacktestResult:
             "pnl_pct": round(t.pnl_pct, 2),
             "exit_reason": t.exit_reason,
             "duration_days": t.duration_days,
+            "side": t.side,
         }
         for t in trades
     ]
 
     # --- Price data for chart ---
-    # Build signal markers
-    entry_set = set()
-    exit_set = set()
+    # signal markers: long_entry=buy, short_entry=short, exits=sell/cover
+    signal_map: dict[str, str] = {}
     for t in trades:
-        entry_set.add(t.entry_date)
-        if t.exit_date:
-            exit_set.add(t.exit_date)
+        if t.side == "long":
+            signal_map[t.entry_date] = "buy"
+            if t.exit_date:
+                signal_map.setdefault(t.exit_date, "sell")
+        else:
+            signal_map[t.entry_date] = "short"
+            if t.exit_date:
+                signal_map.setdefault(t.exit_date, "cover")
 
     price_data = []
     for i in range(n):
@@ -474,7 +561,7 @@ def run_backtest(config: dict[str, Any]) -> BacktestResult:
                 "low": _safe_float(row["Low"]),
                 "close": _safe_float(row["Close"]),
                 "volume": _safe_float(row["Volume"]),
-                "signal": "buy" if d in entry_set else ("sell" if d in exit_set else None),
+                "signal": signal_map.get(d),
             }
         )
 

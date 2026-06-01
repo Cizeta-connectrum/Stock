@@ -198,6 +198,7 @@ export default function StrategyBuilder({ onRun, loading }: Props) {
   const [stopLoss, setStopLoss] = useState(0)
   const [takeProfit, setTakeProfit] = useState(0)
   const [commission, setCommission] = useState(0.1)
+  const [tradingMode, setTradingMode] = useState<'long_only' | 'always_in'>('long_only')
   const [selectedPreset, setSelectedPreset] = useState('')
 
   useEffect(() => {
@@ -232,6 +233,7 @@ export default function StrategyBuilder({ onRun, loading }: Props) {
       stop_loss_pct: stopLoss,
       take_profit_pct: takeProfit,
       commission_pct: commission,
+      trading_mode: tradingMode,
     })
   }
 
@@ -290,6 +292,35 @@ export default function StrategyBuilder({ onRun, loading }: Props) {
           <input type="number" value={capital} onChange={e => setCapital(Number(e.target.value))}
             className="w-full bg-gray-700 text-white rounded px-2 py-1.5 text-sm" />
         </div>
+      </div>
+
+      {/* Trading mode */}
+      <div>
+        <label className="text-xs text-gray-400 block mb-1">取引方向</label>
+        <div className="flex gap-2">
+          {([
+            { value: 'long_only', label: 'ロングのみ', desc: 'エントリー条件で買い、エグジット条件で売り' },
+            { value: 'always_in', label: 'ロング＆ショート', desc: 'エントリー条件でロング転換、エグジット条件でショート転換' },
+          ] as const).map(opt => (
+            <button
+              key={opt.value}
+              onClick={() => setTradingMode(opt.value)}
+              title={opt.desc}
+              className={`flex-1 text-xs px-3 py-2 rounded border transition-colors ${
+                tradingMode === opt.value
+                  ? 'bg-amber-500 border-amber-500 text-black font-semibold'
+                  : 'border-gray-600 text-gray-300 hover:border-amber-500'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        {tradingMode === 'always_in' && (
+          <p className="text-xs text-gray-500 mt-1">
+            常にポジションを保持。エントリー条件 → ロング転換 / エグジット条件 → ショート転換
+          </p>
+        )}
       </div>
 
       {/* Entry conditions */}

@@ -21,6 +21,7 @@ export interface StrategyConfig {
   stop_loss_pct: number
   take_profit_pct: number
   commission_pct: number
+  trading_mode: 'long_only' | 'always_in'
 }
 
 export interface Bar {
@@ -43,6 +44,7 @@ export interface Trade {
   pnl_pct: number
   exit_reason: string
   duration_days: number
+  side: 'long' | 'short'
 }
 
 export interface BacktestSummary {

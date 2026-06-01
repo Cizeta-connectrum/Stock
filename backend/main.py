@@ -62,6 +62,7 @@ class StrategyConfig(BaseModel):
     stop_loss_pct: float = 0.0
     take_profit_pct: float = 0.0
     commission_pct: float = 0.0
+    trading_mode: str = "long_only"  # "long_only" | "always_in"
 
 
 # ---------------------------------------------------------------------------
