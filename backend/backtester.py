@@ -117,15 +117,20 @@ def fetch_gold_data(period: str = "1y", interval: str = "1d") -> pd.DataFrame:
     # Try local DB first
     db_df = load_bars("GOLD", interval)
     if not db_df.empty:
-        # Filter by requested period
-        end_dt = pd.Timestamp.now(tz="America/New_York")
+        end_dt = pd.Timestamp.now(tz="UTC")
         period_days = _period_to_days(period)
         start_dt = end_dt - pd.Timedelta(days=period_days)
+        # Normalize index to UTC-aware
         db_df.index = pd.to_datetime(db_df.index)
         if db_df.index.tz is None:
-            db_df.index = db_df.index.tz_localize("UTC").tz_convert("America/New_York")
+            db_df.index = db_df.index.tz_localize("UTC")
+        else:
+            db_df.index = db_df.index.tz_convert("UTC")
         filtered = db_df[db_df.index >= start_dt]
         if len(filtered) >= 20:
+            # Strip timezone for downstream compatibility
+            filtered = filtered.copy()
+            filtered.index = filtered.index.tz_localize(None)
             return filtered.dropna(subset=["Close"])
 
     # Fall back to live yfinance download
