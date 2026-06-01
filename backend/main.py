@@ -250,9 +250,12 @@ async def download_td(req: TwelveDataDownloadRequest):
         raise HTTPException(status_code=400, detail=f"interval must be one of {sorted(valid)}")
     if not req.api_key:
         raise HTTPException(status_code=400, detail="api_key is required")
+    import traceback
     try:
         result = download_twelve_data(req.api_key, req.interval, req.start_date, req.end_date)
     except Exception as e:
+        detail = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
+        print(detail)
         raise HTTPException(status_code=500, detail=str(e))
     return result
 

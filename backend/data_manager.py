@@ -173,6 +173,11 @@ def download_twelve_data(
             break
 
         request_count += 1
+        # Log first response for debugging
+        if request_count == 1:
+            print(f"[TwelveData] First response keys: {list(data.keys())}")
+            if "status" in data:
+                print(f"[TwelveData] status={data['status']}, message={data.get('message')}")
 
         if data.get("status") == "error":
             errors.append(data.get("message", "Unknown API error"))
