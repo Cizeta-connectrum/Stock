@@ -18,7 +18,10 @@ from database import init_db, get_data_status, save_optimization_run, list_optim
 from data_manager import download_yfinance, download_twelve_data
 from optimizer import run_optimization
 
+from drive_sync import download_db, upload_db
+
 init_db()
+download_db()  # Restore DB from Google Drive on startup
 
 
 # ---------------------------------------------------------------------------
@@ -299,6 +302,7 @@ async def download_yf(req: YFinanceDownloadRequest):
         result = download_yfinance(req.interval, req.days_back)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    upload_db()
     return result
 
 
@@ -321,6 +325,7 @@ async def download_td(req: TwelveDataDownloadRequest):
         detail = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
         print(detail)
         raise HTTPException(status_code=500, detail=str(e))
+    upload_db()
     return result
 
 
