@@ -34,6 +34,8 @@ def _find_file(service) -> str | None:
     results = service.files().list(
         q=f"name='prices.db' and '{FOLDER_ID}' in parents and trashed=false",
         fields="files(id)",
+        supportsAllDrives=True,
+        includeItemsFromAllDrives=True,
     ).execute()
     files = results.get("files", [])
     return files[0]["id"] if files else None
@@ -76,11 +78,16 @@ def upload_db() -> bool:
         media = MediaFileUpload(str(DB_PATH), mimetype="application/x-sqlite3", resumable=True)
         file_id = _find_file(service)
         if file_id:
-            service.files().update(fileId=file_id, media_body=media).execute()
+            service.files().update(
+                fileId=file_id,
+                media_body=media,
+                supportsAllDrives=True,
+            ).execute()
         else:
             service.files().create(
                 body={"name": "prices.db", "parents": [FOLDER_ID]},
                 media_body=media,
+                supportsAllDrives=True,
             ).execute()
         print(f"[DriveSync] Uploaded prices.db ({DB_PATH.stat().st_size // 1024} KB)")
         return True
