@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from backtester import fetch_gold_data, run_backtest
 from strategies import PRESET_STRATEGIES
 from database import init_db, get_data_status
-from data_manager import download_yfinance, download_alpha_vantage
+from data_manager import download_yfinance, download_twelve_data
 
 init_db()
 
@@ -209,10 +209,11 @@ class YFinanceDownloadRequest(BaseModel):
     days_back: int | None = None
 
 
-class AlphaVantageDownloadRequest(BaseModel):
+class TwelveDataDownloadRequest(BaseModel):
     api_key: str
     interval: str = "5m"
-    months_back: int = 24
+    start_date: str = "2020-01-01"
+    end_date: str | None = None
 
 
 @app.get("/api/data/status")
@@ -237,20 +238,20 @@ async def download_yf(req: YFinanceDownloadRequest):
     return result
 
 
-@app.post("/api/data/download/alphavantage")
-async def download_av(req: AlphaVantageDownloadRequest):
+@app.post("/api/data/download/twelvedata")
+async def download_td(req: TwelveDataDownloadRequest):
     """
-    Download gold (XAU/USD) intraday data from Alpha Vantage.
-    Requires a free API key from https://www.alphavantage.co/support/#api-key
-    Free tier: 25 requests/day (= 25 months of data per day).
+    Download GLD intraday data from Twelve Data (free tier).
+    API key: https://twelvedata.com (free signup, 800 req/day)
+    Each request fetches 5000 bars. Pages backwards from end_date to start_date.
     """
-    valid = {"1m", "5m", "15m", "30m", "1h"}
+    valid = {"1m", "5m", "15m", "30m", "1h", "1d"}
     if req.interval not in valid:
         raise HTTPException(status_code=400, detail=f"interval must be one of {sorted(valid)}")
     if not req.api_key:
         raise HTTPException(status_code=400, detail="api_key is required")
     try:
-        result = download_alpha_vantage(req.api_key, req.interval, req.months_back)
+        result = download_twelve_data(req.api_key, req.interval, req.start_date, req.end_date)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     return result

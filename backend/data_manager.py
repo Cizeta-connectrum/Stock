@@ -1,13 +1,16 @@
 """
 Data download manager.
 Supports:
-  1. yfinance  – chunked download to work around period limits
-  2. Alpha Vantage – free API key, extended intraday history (premium has years)
+  1. yfinance     – chunked download (free, no key, limited to ~60 days intraday)
+  2. Twelve Data  – free API key, years of intraday history, 800 req/day
 """
 
 from __future__ import annotations
 
+import json
+import ssl
 import time
+import urllib.request
 from datetime import datetime, timedelta, timezone
 from typing import Generator
 
@@ -18,21 +21,17 @@ from database import upsert_bars
 
 # yfinance per-request limits (days)
 YF_CHUNK_DAYS: dict[str, int] = {
-    "1m":  6,    # 7-day limit, use 6 to be safe
+    "1m":  6,
     "2m":  6,
-    "5m":  55,   # 60-day limit
+    "5m":  55,
     "15m": 55,
     "30m": 55,
     "60m": 55,
     "1h":  55,
-    "90m": 55,
     "1d":  3650,
-    "5d":  3650,
     "1wk": 3650,
-    "1mo": 3650,
 }
 
-# yfinance max lookback (days from today)
 YF_MAX_LOOKBACK: dict[str, int] = {
     "1m":  29,
     "2m":  59,
@@ -41,14 +40,24 @@ YF_MAX_LOOKBACK: dict[str, int] = {
     "30m": 59,
     "60m": 729,
     "1h":  729,
-    "90m": 59,
     "1d":  36500,
-    "5d":  36500,
     "1wk": 36500,
-    "1mo": 36500,
 }
 
 GOLD_SYMBOLS = ["GC=F", "GLD", "XAUUSD=X"]
+
+# Twelve Data interval mapping
+TD_INTERVAL_MAP = {
+    "1m": "1min", "5m": "5min", "15m": "15min",
+    "30m": "30min", "1h": "1h", "1d": "1day",
+}
+
+
+def _ssl_ctx() -> ssl.SSLContext:
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
 
 
 def _date_chunks(
@@ -61,14 +70,12 @@ def _date_chunks(
         cur = chunk_end
 
 
-def download_yfinance(
-    interval: str,
-    days_back: int | None = None,
-) -> dict:
-    """
-    Download gold data from yfinance using chunked requests.
-    Returns a status dict.
-    """
+# ---------------------------------------------------------------------------
+# yfinance
+# ---------------------------------------------------------------------------
+
+def download_yfinance(interval: str, days_back: int | None = None) -> dict:
+    """Download gold data from yfinance using chunked requests."""
     max_back = YF_MAX_LOOKBACK.get(interval, 59)
     if days_back is None or days_back > max_back:
         days_back = max_back
@@ -103,10 +110,9 @@ def download_yfinance(
 
         if not df.empty:
             cols = [c for c in ["Open", "High", "Low", "Close", "Volume"] if c in df.columns]
-            n = upsert_bars("GOLD", interval, df[cols])
-            total_bars += n
+            total_bars += upsert_bars("GOLD", interval, df[cols])
 
-        time.sleep(0.3)  # be polite to Yahoo Finance
+        time.sleep(0.3)
 
     return {
         "source": "yfinance",
@@ -117,109 +123,99 @@ def download_yfinance(
     }
 
 
-def download_alpha_vantage(
+# ---------------------------------------------------------------------------
+# Twelve Data
+# ---------------------------------------------------------------------------
+
+def download_twelve_data(
     api_key: str,
     interval: str,
-    months_back: int = 24,
+    start_date: str,          # "YYYY-MM-DD"
+    end_date: str | None = None,
 ) -> dict:
     """
-    Download gold intraday data from Alpha Vantage using GLD ETF.
-    Free tier: 25 req/day. Each request covers 1 month with month= param.
-    interval: '1m','5m','15m','30m','1h'
+    Download gold (GLD) intraday data from Twelve Data.
+    Free tier: 800 req/day, 8 req/min, 5000 bars/request.
+    API key: https://twelvedata.com (free signup)
     """
-    import urllib.request
-    import ssl
-    import json
+    td_interval = TD_INTERVAL_MAP.get(interval)
+    if not td_interval:
+        return {"error": f"Unsupported interval: {interval}"}
 
-    ssl_ctx = ssl.create_default_context()
-    ssl_ctx.check_hostname = False
-    ssl_ctx.verify_mode = ssl.CERT_NONE
+    if end_date is None:
+        end_date = datetime.now().strftime("%Y-%m-%d")
 
-    av_interval_map = {
-        "1m": "1min", "5m": "5min", "15m": "15min",
-        "30m": "30min", "1h": "60min", "60m": "60min",
-    }
-    av_interval = av_interval_map.get(interval)
-    if not av_interval:
-        return {"error": f"Alpha Vantage does not support interval: {interval}"}
-
+    ctx = _ssl_ctx()
     total_bars = 0
     errors = []
+    request_count = 0
 
-    for month_offset in range(months_back):
-        dt = datetime.now() - timedelta(days=30 * month_offset)
-        # Alpha Vantage slice parameter: year1month1 ... year2month1 etc
-        year_num = (month_offset // 12) + 1
-        month_num = (month_offset % 12) + 1
-        slice_param = f"year{year_num}month{month_num}"
+    # We page backwards using end_date, fetching 5000 bars at a time
+    current_end = end_date
+    start_dt = pd.Timestamp(start_date)
 
-        # Use TIME_SERIES_INTRADAY with GLD (Gold ETF) — most reliable on free tier
+    while True:
         url = (
-            f"https://www.alphavantage.co/query"
-            f"?function=TIME_SERIES_INTRADAY"
-            f"&symbol=GLD"
-            f"&interval={av_interval}"
-            f"&outputsize=full"
-            f"&extended_hours=false"
-            f"&slice={slice_param}"
+            f"https://api.twelvedata.com/time_series"
+            f"?symbol=GLD"
+            f"&interval={td_interval}"
+            f"&outputsize=5000"
+            f"&end_date={current_end}"
+            f"&timezone=America/New_York"
             f"&apikey={api_key}"
         )
 
         try:
-            with urllib.request.urlopen(url, timeout=30, context=ssl_ctx) as resp:
+            with urllib.request.urlopen(url, timeout=30, context=ctx) as resp:
                 data = json.loads(resp.read())
-
-            # Surface any API-level errors immediately
-            if "Error Message" in data:
-                errors.append(data["Error Message"])
-                break
-            if "Information" in data:
-                # Rate limit hit
-                errors.append(data["Information"])
-                break
-            if "Note" in data:
-                errors.append(data["Note"])
-                time.sleep(60)
-                continue
-
-            key = f"Time Series ({av_interval})"
-            if key not in data:
-                # Log actual keys for debugging
-                actual_keys = list(data.keys())
-                errors.append(f"slice={slice_param}: expected '{key}', got keys={actual_keys}")
-                continue
-
-            ts_data = data[key]
-            if not ts_data:
-                continue
-
-            timestamps = []
-            records = []
-            for ts_str, vals in ts_data.items():
-                timestamps.append(pd.Timestamp(ts_str, tz="America/New_York"))
-                records.append({
-                    "Open":   float(vals["1. open"]),
-                    "High":   float(vals["2. high"]),
-                    "Low":    float(vals["3. low"]),
-                    "Close":  float(vals["4. close"]),
-                    "Volume": float(vals.get("5. volume", 0)),
-                })
-
-            if records:
-                df = pd.DataFrame(records, index=pd.DatetimeIndex(timestamps))
-                n = upsert_bars("GOLD", interval, df)
-                total_bars += n
-
-            time.sleep(12)  # free tier: 5 req/min
-
         except Exception as e:
-            errors.append(str(e))
-            continue
+            errors.append(f"Request error: {e}")
+            break
+
+        request_count += 1
+
+        if data.get("status") == "error":
+            errors.append(data.get("message", "Unknown API error"))
+            break
+
+        values = data.get("values")
+        if not values:
+            break
+
+        records = []
+        timestamps = []
+        for bar in values:
+            ts = pd.Timestamp(bar["datetime"], tz="America/New_York")
+            timestamps.append(ts)
+            records.append({
+                "Open":   float(bar["open"]),
+                "High":   float(bar["high"]),
+                "Low":    float(bar["low"]),
+                "Close":  float(bar["close"]),
+                "Volume": float(bar.get("volume") or 0),
+            })
+
+        if records:
+            df = pd.DataFrame(records, index=pd.DatetimeIndex(timestamps))
+            total_bars += upsert_bars("GOLD", interval, df)
+
+        # The oldest bar in this batch
+        oldest_ts = min(timestamps)
+        if oldest_ts <= start_dt:
+            break
+
+        # Next batch ends just before the oldest bar we got
+        current_end = (oldest_ts - timedelta(minutes=1)).strftime("%Y-%m-%d %H:%M:%S")
+
+        # Rate limit: 8 req/min on free tier → wait ~8s between requests
+        time.sleep(8)
 
     return {
-        "source": "alpha_vantage",
+        "source": "twelve_data",
         "interval": interval,
-        "months_requested": months_back,
+        "start_date": start_date,
+        "end_date": end_date,
+        "requests_made": request_count,
         "bars_stored": total_bars,
         "errors": errors[:5],
     }
