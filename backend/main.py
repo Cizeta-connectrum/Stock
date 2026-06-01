@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 from backtester import fetch_gold_data, run_backtest
 from strategies import PRESET_STRATEGIES
-from database import init_db, get_data_status
+from database import init_db, get_data_status, save_optimization_run, list_optimization_runs, delete_optimization_run
 from data_manager import download_yfinance, download_twelve_data
 from optimizer import run_optimization
 
@@ -233,7 +233,30 @@ async def optimize(req: OptimizeRequest):
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Optimization error: {exc}")
-    return {"results": results, "count": len(results)}
+    run_id = save_optimization_run(
+        indicator=req.indicator,
+        period=req.period,
+        interval=req.interval,
+        trading_mode=req.trading_mode,
+        commission=req.commission_pct,
+        stop_loss=req.stop_loss_pct,
+        take_profit=req.take_profit_pct,
+        results=results,
+    )
+    return {"results": results, "count": len(results), "run_id": run_id}
+
+
+@app.get("/api/optimize/history")
+async def optimize_history():
+    return {"runs": list_optimization_runs()}
+
+
+@app.delete("/api/optimize/history/{run_id}")
+async def delete_optimize_run(run_id: int):
+    ok = delete_optimization_run(run_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return {"deleted": run_id}
 
 
 @app.get("/health")

@@ -34,6 +34,20 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_ohlcv_lookup
             ON ohlcv (symbol, interval, ts)
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS optimization_runs (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at   TEXT    NOT NULL,
+                indicator    TEXT    NOT NULL,
+                period       TEXT    NOT NULL,
+                interval     TEXT    NOT NULL,
+                trading_mode TEXT    NOT NULL,
+                commission   REAL    NOT NULL,
+                stop_loss    REAL    NOT NULL,
+                take_profit  REAL    NOT NULL,
+                results_json TEXT    NOT NULL
+            )
+        """)
 
 
 @contextmanager
@@ -98,6 +112,58 @@ def load_bars(symbol: str, interval: str,
     df.index = df.index.tz_convert("America/New_York")
     df = df.drop(columns=["ts"])
     return df
+
+
+def save_optimization_run(
+    indicator: str, period: str, interval: str,
+    trading_mode: str, commission: float, stop_loss: float, take_profit: float,
+    results: list,
+) -> int:
+    import json
+    from datetime import datetime, timezone
+    created_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    with get_conn() as conn:
+        cur = conn.execute("""
+            INSERT INTO optimization_runs
+            (created_at, indicator, period, interval, trading_mode, commission, stop_loss, take_profit, results_json)
+            VALUES (?,?,?,?,?,?,?,?,?)
+        """, (created_at, indicator, period, interval, trading_mode, commission, stop_loss, take_profit, json.dumps(results)))
+        return cur.lastrowid
+
+
+def list_optimization_runs() -> list[dict]:
+    import json
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT id, created_at, indicator, period, interval, trading_mode,
+                   commission, stop_loss, take_profit, results_json
+            FROM optimization_runs ORDER BY id DESC
+        """).fetchall()
+    result = []
+    for row in rows:
+        rid, created_at, indicator, period, interval, trading_mode, comm, sl, tp, rjson = row
+        results = json.loads(rjson)
+        result.append({
+            "id": rid,
+            "created_at": created_at,
+            "indicator": indicator,
+            "period": period,
+            "interval": interval,
+            "trading_mode": trading_mode,
+            "commission": comm,
+            "stop_loss": sl,
+            "take_profit": tp,
+            "top_result": results[0] if results else None,
+            "count": len(results),
+            "results": results,
+        })
+    return result
+
+
+def delete_optimization_run(run_id: int) -> bool:
+    with get_conn() as conn:
+        cur = conn.execute("DELETE FROM optimization_runs WHERE id=?", (run_id,))
+        return cur.rowcount > 0
 
 
 def get_data_status() -> list[dict]:

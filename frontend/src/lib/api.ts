@@ -123,9 +123,33 @@ export async function fetchStrategies(): Promise<StrategiesResponse> {
   return res.data
 }
 
-export async function runOptimize(req: OptimizeRequest): Promise<{ results: OptimizeResultRow[]; count: number }> {
+export interface OptimizeRun {
+  id: number
+  created_at: string
+  indicator: string
+  period: string
+  interval: string
+  trading_mode: string
+  commission: number
+  stop_loss: number
+  take_profit: number
+  count: number
+  top_result: OptimizeResultRow | null
+  results: OptimizeResultRow[]
+}
+
+export async function runOptimize(req: OptimizeRequest): Promise<{ results: OptimizeResultRow[]; count: number; run_id: number }> {
   const res = await axios.post(`${BASE}/api/optimize`, req)
   return res.data
+}
+
+export async function fetchOptimizeHistory(): Promise<{ runs: OptimizeRun[] }> {
+  const res = await axios.get(`${BASE}/api/optimize/history`)
+  return res.data
+}
+
+export async function deleteOptimizeRun(id: number): Promise<void> {
+  await axios.delete(`${BASE}/api/optimize/history/${id}`)
 }
 
 export async function runBacktest(config: StrategyConfig): Promise<BacktestResult> {
