@@ -128,7 +128,12 @@ def download_alpha_vantage(
     interval: '1min', '5min', '15min', '30min', '60min'
     """
     import urllib.request
+    import ssl
     import json
+
+    ssl_ctx = ssl.create_default_context()
+    ssl_ctx.check_hostname = False
+    ssl_ctx.verify_mode = ssl.CERT_NONE
 
     # Map our interval names to Alpha Vantage names
     av_interval_map = {
@@ -162,7 +167,7 @@ def download_alpha_vantage(
         )
 
         try:
-            with urllib.request.urlopen(url, timeout=30) as resp:
+            with urllib.request.urlopen(url, timeout=30, context=ssl_ctx) as resp:
                 data = json.loads(resp.read())
 
             if "Error Message" in data or "Note" in data:
