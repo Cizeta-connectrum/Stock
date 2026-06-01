@@ -99,10 +99,22 @@ def _sharpe_ratio(daily_returns: pd.Series, risk_free_rate: float = 0.05) -> flo
 
 def fetch_gold_data(period: str = "1y", interval: str = "1d") -> pd.DataFrame:
     """Fetch gold futures OHLCV data from yfinance."""
-    ticker = yf.Ticker("GC=F")
-    df = ticker.history(period=period, interval=interval)
+    tickers = ["GC=F", "GLD", "XAUUSD=X"]
+    df = pd.DataFrame()
+    last_error = None
+    for symbol in tickers:
+        try:
+            data = yf.download(symbol, period=period, interval=interval, progress=False, auto_adjust=True)
+            if not data.empty:
+                df = data
+                break
+        except Exception as e:
+            last_error = e
+            continue
     if df.empty:
-        raise ValueError("No data returned from yfinance for GC=F")
+        raise ValueError(f"No data returned from yfinance. Last error: {last_error}")
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
     df = df[["Open", "High", "Low", "Close", "Volume"]].copy()
     df.index = pd.to_datetime(df.index)
     df = df.sort_index()
