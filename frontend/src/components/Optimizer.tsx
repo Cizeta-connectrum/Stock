@@ -16,10 +16,14 @@ const INTERVAL_OPTIONS = [
   { value: '1d',  label: '日足' },
   { value: '1wk', label: '週足' },
 ]
-const INDICATOR_OPTIONS: { value: 'SMA' | 'RSI' | 'BB'; label: string; desc: string }[] = [
-  { value: 'SMA', label: 'SMA クロス',        desc: 'fast × slow 全ペア' },
-  { value: 'RSI', label: 'RSI 逆張り',        desc: '閾値の全組み合わせ' },
-  { value: 'BB',  label: 'ボリンジャーバンド', desc: 'period × σ 全組み合わせ' },
+const INDICATOR_OPTIONS: { value: 'SMA' | 'EMA' | 'MACD' | 'RSI' | 'BB' | 'STOCH' | 'EMA_RSI'; label: string; desc: string }[] = [
+  { value: 'SMA',     label: 'SMA クロス',         desc: 'fast × slow 全ペア (~10)' },
+  { value: 'EMA',     label: 'EMA クロス',         desc: 'fast × slow 全ペア (~10)' },
+  { value: 'MACD',    label: 'MACD クロス',        desc: 'MACD線 × シグナル線 (8組)' },
+  { value: 'RSI',     label: 'RSI 逆張り',         desc: '閾値の全組み合わせ (60)' },
+  { value: 'BB',      label: 'ボリンジャーバンド',  desc: 'period × σ (16)' },
+  { value: 'STOCH',   label: 'ストキャスティクス',  desc: '%K クロス 閾値 (36)' },
+  { value: 'EMA_RSI', label: 'EMA + RSI 複合',     desc: 'トレンドフィルター + 逆張り (24)' },
 ]
 
 interface RunConfig {
@@ -32,29 +36,52 @@ interface RunConfig {
   take_profit: number
 }
 
+const INDICATOR_LABEL: Record<string, string> = {
+  SMA: 'SMA クロス', EMA: 'EMA クロス', MACD: 'MACD クロス',
+  RSI: 'RSI 逆張り', BB: 'ボリンジャーバンド', STOCH: 'ストキャスティクス', EMA_RSI: 'EMA+RSI 複合',
+}
+
 function buildStrategyConfig(row: OptimizeResultRow, run: RunConfig, capital: number): StrategyConfig {
   const p = row.params
-  let entry: ConditionSpec, exit_: ConditionSpec
+  let entry_conditions: ConditionSpec[]
+  let exit_conditions: ConditionSpec[]
 
   if (run.indicator === 'SMA') {
-    entry = { indicator: 'SMA', params: { period: p.fast }, condition: 'crosses_above', target: { indicator: 'SMA', params: { period: p.slow } } }
-    exit_ = { indicator: 'SMA', params: { period: p.fast }, condition: 'crosses_below', target: { indicator: 'SMA', params: { period: p.slow } } }
+    entry_conditions = [{ indicator: 'SMA', params: { period: p.fast }, condition: 'crosses_above', target: { indicator: 'SMA', params: { period: p.slow } } }]
+    exit_conditions  = [{ indicator: 'SMA', params: { period: p.fast }, condition: 'crosses_below', target: { indicator: 'SMA', params: { period: p.slow } } }]
+  } else if (run.indicator === 'EMA') {
+    entry_conditions = [{ indicator: 'EMA', params: { period: p.fast }, condition: 'crosses_above', target: { indicator: 'EMA', params: { period: p.slow } } }]
+    exit_conditions  = [{ indicator: 'EMA', params: { period: p.fast }, condition: 'crosses_below', target: { indicator: 'EMA', params: { period: p.slow } } }]
+  } else if (run.indicator === 'MACD') {
+    const mp = { fast: p.fast, slow: p.slow, signal: p.signal }
+    entry_conditions = [{ indicator: 'MACD', params: mp, condition: 'crosses_above', target: { indicator: 'MACD', params: mp, sub: 'signal' } }]
+    exit_conditions  = [{ indicator: 'MACD', params: mp, condition: 'crosses_below', target: { indicator: 'MACD', params: mp, sub: 'signal' } }]
   } else if (run.indicator === 'RSI') {
-    entry = { indicator: 'RSI', params: { period: p.period }, condition: 'crosses_below', target: { value: p.oversold } }
-    exit_ = { indicator: 'RSI', params: { period: p.period }, condition: 'crosses_above', target: { value: p.overbought } }
+    entry_conditions = [{ indicator: 'RSI', params: { period: p.period }, condition: 'crosses_below', target: { value: p.oversold } }]
+    exit_conditions  = [{ indicator: 'RSI', params: { period: p.period }, condition: 'crosses_above', target: { value: p.overbought } }]
+  } else if (run.indicator === 'STOCH') {
+    const sp = { k_period: p.k_period, d_period: p.d_period }
+    entry_conditions = [{ indicator: 'STOCH', params: sp, sub: 'k', condition: 'crosses_above', target: { value: p.oversold } }]
+    exit_conditions  = [{ indicator: 'STOCH', params: sp, sub: 'k', condition: 'crosses_above', target: { value: p.overbought } }]
+  } else if (run.indicator === 'EMA_RSI') {
+    entry_conditions = [
+      { indicator: 'PRICE', params: {}, condition: 'above', target: { indicator: 'EMA', params: { period: p.ema_period } } },
+      { indicator: 'RSI',   params: { period: p.rsi_period }, condition: 'crosses_below', target: { value: p.oversold } },
+    ]
+    exit_conditions = [{ indicator: 'RSI', params: { period: p.rsi_period }, condition: 'crosses_above', target: { value: p.overbought } }]
   } else {
     // BB
-    entry = { indicator: 'PRICE', params: {}, condition: 'crosses_below', target: { indicator: 'BB', params: { period: p.period, std_dev: p.std_dev }, sub: 'lower' } }
-    exit_ = { indicator: 'PRICE', params: {}, condition: 'crosses_above', target: { indicator: 'BB', params: { period: p.period, std_dev: p.std_dev }, sub: 'upper' } }
+    entry_conditions = [{ indicator: 'PRICE', params: {}, condition: 'crosses_below', target: { indicator: 'BB', params: { period: p.period, std_dev: p.std_dev }, sub: 'lower' } }]
+    exit_conditions  = [{ indicator: 'PRICE', params: {}, condition: 'crosses_above', target: { indicator: 'BB', params: { period: p.period, std_dev: p.std_dev }, sub: 'upper' } }]
   }
 
   return {
     period: run.period,
     interval: run.interval,
     initial_capital: capital,
-    entry_conditions: [entry],
+    entry_conditions,
     entry_logic: 'AND',
-    exit_conditions: [exit_],
+    exit_conditions,
     exit_logic: 'AND',
     stop_loss_pct: run.stop_loss,
     take_profit_pct: run.take_profit,
@@ -151,7 +178,7 @@ function ResultsTable({ rows, globalRank = false, runConfig, capital, onApply }:
 type MainView = 'current' | 'archive' | 'top'
 
 export default function Optimizer({ onApply }: { onApply?: (config: StrategyConfig) => void }) {
-  const [indicator, setIndicator] = useState<'SMA' | 'RSI' | 'BB'>('SMA')
+  const [indicator, setIndicator] = useState<'SMA' | 'EMA' | 'MACD' | 'RSI' | 'BB' | 'STOCH' | 'EMA_RSI'>('SMA')
   const [period, setPeriod] = useState('1y')
   const [interval, setInterval] = useState('1d')
   const [capital, setCapital] = useState(10000)
@@ -435,7 +462,7 @@ export default function Optimizer({ onApply }: { onApply?: (config: StrategyConf
                 <div key={run.id} className="bg-gray-800 rounded-xl overflow-hidden">
                   <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700/50">
                     <div>
-                      <span className="font-medium text-gray-200">{run.indicator} クロス</span>
+                      <span className="font-medium text-gray-200">{INDICATOR_LABEL[run.indicator] ?? run.indicator}</span>
                       <span className="text-xs text-gray-500 ml-3">
                         {run.period} / {run.interval} · 手数料 {run.commission}% · {run.count}パターン
                       </span>

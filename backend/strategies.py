@@ -47,7 +47,20 @@ def calc_macd(
     return {"macd": macd_line, "signal": signal_line, "histogram": histogram}
 
 
-def calc_bollinger_bands(
+def calc_stochastic(
+    df: pd.DataFrame,
+    k_period: int = 14,
+    d_period: int = 3,
+) -> dict[str, pd.Series]:
+    low_min = df["Low"].rolling(window=k_period).min()
+    high_max = df["High"].rolling(window=k_period).max()
+    denom = (high_max - low_min).replace(0, np.nan)
+    k = 100 * (df["Close"] - low_min) / denom
+    d = k.rolling(window=d_period).mean()
+    return {"k": k.fillna(50), "d": d.fillna(50)}
+
+
+
     series: pd.Series,
     period: int = 20,
     std_dev: float = 2.0,
@@ -101,6 +114,13 @@ def get_indicator_series(
         std_dev = float(params.get("std_dev", 2.0))
         result = calc_bollinger_bands(close, period, std_dev)
         key = sub if sub in result else "middle"
+        return result[key]
+
+    if ind in ("STOCH", "STOCHASTIC"):
+        k_period = int(params.get("k_period", 14))
+        d_period = int(params.get("d_period", 3))
+        result = calc_stochastic(df, k_period, d_period)
+        key = sub if sub in result else "k"
         return result[key]
 
     if ind == "PRICE":

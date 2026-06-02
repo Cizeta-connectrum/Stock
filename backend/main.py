@@ -189,6 +189,14 @@ async def list_strategies():
             ],
         },
         {
+            "id": "STOCH",
+            "name": "Stochastic",
+            "params": [
+                {"name": "k_period", "type": "int", "default": 14, "min": 3, "max": 50},
+                {"name": "d_period", "type": "int", "default": 3,  "min": 1, "max": 10},
+            ],
+        },
+        {
             "id": "PRICE",
             "name": "Price (Close)",
             "params": [],
