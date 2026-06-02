@@ -30,7 +30,7 @@ export default function DataManager() {
   const [yfResult, setYfResult] = useState<string | null>(null)
 
   // Twelve Data state
-  const [tdKey, setTdKey] = useState('')
+  const [tdKey, setTdKey] = useState(() => localStorage.getItem('td_api_key') || '')
   const [tdInterval, setTdInterval] = useState('5m')
   const [tdStart, setTdStart] = useState('2020-01-01')
   const [tdEnd, setTdEnd] = useState('')
@@ -151,11 +151,31 @@ export default function DataManager() {
         <div className="space-y-3">
           <div>
             <label className="text-xs text-gray-400 block mb-1">APIキー</label>
-            <input
-              type="text" value={tdKey} onChange={e => setTdKey(e.target.value)}
-              placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-              className="bg-gray-700 text-white rounded px-3 py-1.5 text-sm w-full max-w-sm font-mono"
-            />
+            <div className="flex gap-2 items-center">
+              <input
+                type="text" value={tdKey}
+                onChange={e => setTdKey(e.target.value)}
+                placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                className="bg-gray-700 text-white rounded px-3 py-1.5 text-sm w-full max-w-sm font-mono"
+              />
+              <button
+                onClick={() => { localStorage.setItem('td_api_key', tdKey); alert('APIキーを保存しました') }}
+                className="text-xs px-3 py-1.5 rounded border border-gray-600 text-gray-300 hover:border-amber-500 whitespace-nowrap"
+              >
+                保存
+              </button>
+              {localStorage.getItem('td_api_key') && (
+                <button
+                  onClick={() => { localStorage.removeItem('td_api_key'); setTdKey('') }}
+                  className="text-xs px-2 py-1.5 rounded border border-red-800 text-red-400 hover:border-red-500 whitespace-nowrap"
+                >
+                  削除
+                </button>
+              )}
+            </div>
+            {localStorage.getItem('td_api_key') && (
+              <p className="text-xs text-green-500 mt-1">✓ APIキーが保存されています</p>
+            )}
           </div>
           <div className="flex flex-wrap gap-3 items-end">
             <div>
