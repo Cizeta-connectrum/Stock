@@ -42,6 +42,7 @@ interface RunConfig {
   commission: number
   stop_loss: number
   take_profit: number
+  usd_jpy?: number
 }
 
 const INDICATOR_LABEL: Record<string, string> = {
@@ -100,6 +101,7 @@ function buildStrategyConfig(row: OptimizeResultRow, run: RunConfig, capital: nu
     period: run.period,
     interval: run.interval,
     initial_capital: capital,
+    usd_jpy: run.usd_jpy ?? 150,
     entry_conditions,
     entry_logic: 'AND',
     exit_conditions,
