@@ -27,8 +27,13 @@ from optimizer import run_optimization
 from drive_sync import download_db, upload_db
 
 init_db()
-download_db()  # Restore DB from Google Drive on startup
+try:
+    result = download_db()  # Restore DB from Google Drive on startup
+    print(f"[Startup] Drive download result: {result}")
+except Exception as e:
+    print(f"[Startup] Drive download exception: {e}")
 init_db()      # Ensure tables exist after DB restore
+print("[Startup] DB initialized successfully")
 
 
 # ---------------------------------------------------------------------------
@@ -44,9 +49,10 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 
@@ -273,9 +279,15 @@ async def optimize(req: OptimizeRequest):
             take_profit=req.take_profit_pct,
             results=results,
         )
+        upload_db()
         yield f"data: {json.dumps({'done': True, 'results': results, 'count': len(results), 'run_id': run_id})}\n\n"
 
-    return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+    return StreamingResponse(stream(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "*",
+    })
 
 
 @app.get("/api/optimize/history")
