@@ -279,8 +279,10 @@ async def optimize(req: OptimizeRequest):
             take_profit=req.take_profit_pct,
             results=results,
         )
-        upload_db()
         yield f"data: {json.dumps({'done': True, 'results': results, 'count': len(results), 'run_id': run_id})}\n\n"
+        # Upload DB in background after sending done event
+        loop = asyncio.get_event_loop()
+        loop.run_in_executor(_executor, upload_db)
 
     return StreamingResponse(stream(), media_type="text/event-stream", headers={
         "Cache-Control": "no-cache",

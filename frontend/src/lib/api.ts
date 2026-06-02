@@ -150,17 +150,30 @@ export async function runOptimizeStream(
   if (!response.ok) throw new Error(`HTTP ${response.status}`)
   const reader = response.body!.getReader()
   const decoder = new TextDecoder()
+  let buffer = ''
   while (true) {
     const { done, value } = await reader.read()
     if (done) break
-    const text = decoder.decode(value)
-    for (const line of text.split('\n')) {
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    for (const line of lines) {
       if (!line.startsWith('data: ')) continue
-      const data = JSON.parse(line.slice(6))
-      if (data.error) throw new Error(data.error)
-      if (data.done) return { results: data.results, count: data.count, run_id: data.run_id }
-      onProgress(data.current, data.total, data.label)
+      const raw = line.slice(6).trim()
+      if (!raw) continue
+      let data: Record<string, unknown>
+      try { data = JSON.parse(raw) } catch { continue }
+      if (data.error) throw new Error(data.error as string)
+      if (data.done) return { results: data.results as OptimizeResultRow[], count: data.count as number, run_id: data.run_id as number }
+      onProgress(data.current as number, data.total as number, data.label as string)
     }
+  }
+  // flush remaining buffer
+  if (buffer.startsWith('data: ')) {
+    try {
+      const data = JSON.parse(buffer.slice(6).trim())
+      if (data.done) return { results: data.results as OptimizeResultRow[], count: data.count as number, run_id: data.run_id as number }
+    } catch { /* ignore */ }
   }
   throw new Error('Stream ended unexpectedly')
 }
