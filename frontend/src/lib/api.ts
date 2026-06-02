@@ -15,6 +15,7 @@ export interface StrategyConfig {
   interval: string
   initial_capital: number   // JPY
   usd_jpy: number
+  leverage: number
   entry_conditions: ConditionSpec[]
   entry_logic: 'AND' | 'OR'
   exit_conditions: ConditionSpec[]
@@ -100,6 +101,7 @@ export interface OptimizeRequest {
   interval: string
   initial_capital: number   // JPY
   usd_jpy: number
+  leverage: number
   trading_mode: 'long_only' | 'always_in'
   stop_loss_pct: number
   take_profit_pct: number

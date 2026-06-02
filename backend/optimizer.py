@@ -377,6 +377,7 @@ def run_optimization(
     top_n: int,
     trading_mode: str = "long_only",
     usd_jpy: float = 150.0,
+    leverage: float = 500.0,
     progress_callback=None,
 ) -> list[dict[str, Any]]:
     builder = COMBO_BUILDERS.get(indicator.upper())
@@ -398,6 +399,7 @@ def run_optimization(
             "interval": interval,
             "initial_capital": initial_capital,
             "usd_jpy": usd_jpy,
+            "leverage": leverage,
             "entry_conditions": combo["entry_conditions"],
             "entry_logic": "AND",
             "exit_conditions": combo["exit_conditions"],

@@ -7,6 +7,8 @@ interface Props {
   onSave: (s: TradingSettings) => void
 }
 
+const LEVERAGE_PRESETS = [25, 50, 100, 200, 500, 1000]
+
 export default function Settings({ settings, onSave }: Props) {
   const [local, setLocal] = useState<TradingSettings>({ ...settings })
   const [saved, setSaved] = useState(false)
@@ -22,10 +24,10 @@ export default function Settings({ settings, onSave }: Props) {
     setTimeout(() => setSaved(false), 2000)
   }
 
-  const maxLots = calcMaxLots(local.initial_capital)
+  const maxLots = calcMaxLots(local.initial_capital, local.leverage, 2500, local.usd_jpy)
   const ozPerLot = 100
-  const notionalJpy = maxLots * ozPerLot * 2500 * local.usd_jpy  // estimate at $2500/oz
-  const leverage = local.initial_capital > 0 ? notionalJpy / local.initial_capital : 0
+  const notionalJpy = maxLots * ozPerLot * 2500 * local.usd_jpy
+  const effectiveLeverage = local.initial_capital > 0 ? notionalJpy / local.initial_capital : 0
 
   return (
     <div className="max-w-lg mx-auto space-y-6">
@@ -63,6 +65,31 @@ export default function Settings({ settings, onSave }: Props) {
               {new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY', maximumFractionDigits: 0 }).format(local.initial_capital)}
             </span>
           </div>
+        </div>
+
+        {/* Leverage */}
+        <div>
+          <label className="text-xs text-gray-400 block mb-1">レバレッジ</label>
+          <div className="flex items-center gap-2 flex-wrap">
+            {LEVERAGE_PRESETS.map(lv => (
+              <button key={lv} onClick={() => set('leverage', lv)}
+                className={`text-xs px-3 py-1.5 rounded border transition-colors ${
+                  local.leverage === lv
+                    ? 'bg-amber-500 border-amber-500 text-black font-semibold'
+                    : 'border-gray-600 text-gray-300 hover:border-amber-500'
+                }`}>
+                {lv}倍
+              </button>
+            ))}
+            <input
+              type="number" min="1" max="2000" step="1"
+              value={local.leverage}
+              onChange={e => set('leverage', Number(e.target.value))}
+              className="bg-gray-700 text-white rounded px-3 py-1.5 text-sm w-24"
+              placeholder="カスタム"
+            />
+          </div>
+          <p className="text-xs text-gray-500 mt-1">現在: {local.leverage}倍レバレッジ</p>
         </div>
 
         {/* SL / TP */}
@@ -119,9 +146,9 @@ export default function Settings({ settings, onSave }: Props) {
 
       {/* Lot calculator */}
       <div className="bg-gray-800 rounded-xl p-5 space-y-3">
-        <h3 className="text-sm font-semibold text-gray-200">ロット計算</h3>
+        <h3 className="text-sm font-semibold text-gray-200">ロット計算（{local.leverage}倍レバレッジ）</h3>
         <div className="text-xs text-gray-400 space-y-1">
-          <p>証拠金ルール: <span className="text-amber-400">¥10,000 = 0.01ロット</span></p>
+          <p>必要証拠金: <span className="text-amber-400">1lot あたり ¥{Math.round(100 * 2500 * local.usd_jpy / local.leverage).toLocaleString('ja-JP')}</span>（$2,500/oz 基準）</p>
           <p>1ロット = 100oz (金標準ロット)</p>
         </div>
         <div className="grid grid-cols-2 gap-3 text-sm">
@@ -131,8 +158,8 @@ export default function Settings({ settings, onSave }: Props) {
             <div className="text-xs text-gray-500">{(maxLots * 100).toFixed(0)} oz</div>
           </div>
           <div className="bg-gray-700/50 rounded-lg p-3">
-            <div className="text-xs text-gray-400 mb-1">想定レバレッジ</div>
-            <div className="text-xl font-bold text-blue-400">{leverage.toFixed(1)}倍</div>
+            <div className="text-xs text-gray-400 mb-1">実効レバレッジ</div>
+            <div className="text-xl font-bold text-blue-400">{effectiveLeverage.toFixed(1)}倍</div>
             <div className="text-xs text-gray-500">@$2,500/oz 基準</div>
           </div>
         </div>

@@ -54,13 +54,19 @@ class BacktestResult:
 # Helper utilities
 # ---------------------------------------------------------------------------
 
-LOT_MARGIN_JPY = 10_000.0   # JPY margin per 0.01 lot
-LOT_OZ         = 100.0      # oz per standard lot
+LOT_OZ = 100.0   # oz per standard lot
 
 
-def _snap_lots(capital_jpy: float) -> float:
-    """Floor capital to nearest tradeable 0.01-lot increment."""
-    n = math.floor(capital_jpy / LOT_MARGIN_JPY)
+def _snap_lots(capital_jpy: float, entry_price_usd: float, usd_jpy: float, leverage: float) -> float:
+    """Floor capital to nearest 0.01-lot increment given leverage.
+
+    margin_per_lot = (LOT_OZ * price_usd * usd_jpy) / leverage
+    max_lots = floor(capital_jpy / margin_per_lot / 0.01) * 0.01
+    """
+    margin_per_lot = (LOT_OZ * entry_price_usd * usd_jpy) / max(leverage, 1.0)
+    if margin_per_lot <= 0:
+        return 0.0
+    n = math.floor(capital_jpy / margin_per_lot / 0.01)
     return n * 0.01
 
 
@@ -300,6 +306,7 @@ def run_backtest(config: dict[str, Any]) -> BacktestResult:
     stop_loss_pct    = float(config.get("stop_loss_pct", 0) or 0)
     take_profit_pct  = float(config.get("take_profit_pct", 0) or 0)
     commission_pct   = float(config.get("commission_pct", 0) or 0)
+    leverage         = float(config.get("leverage", 500) or 500)
     trading_mode     = config.get("trading_mode", "long_only")
     always_in        = trading_mode == "always_in"
 
@@ -331,7 +338,7 @@ def run_backtest(config: dict[str, Any]) -> BacktestResult:
         # ── Open position ─────────────────────────────────────────────────────
         if side == "none":
             if entry_signals.iloc[i]:
-                lots = _snap_lots(capital_jpy)
+                lots = _snap_lots(capital_jpy, price, usd_jpy, leverage)
                 if lots >= 0.01:
                     oz = lots * LOT_OZ
                     entry_capital_jpy = capital_jpy                  # before commission
@@ -342,7 +349,7 @@ def run_backtest(config: dict[str, Any]) -> BacktestResult:
                     entry_price, entry_date, entry_index = price, date_str, i
                     side = "long"
             elif always_in and exit_signals.iloc[i]:
-                lots = _snap_lots(capital_jpy)
+                lots = _snap_lots(capital_jpy, price, usd_jpy, leverage)
                 if lots >= 0.01:
                     oz = lots * LOT_OZ
                     entry_capital_jpy = capital_jpy
@@ -380,7 +387,7 @@ def run_backtest(config: dict[str, Any]) -> BacktestResult:
                 ))
                 side = "none"; entry_lots = 0.0; entry_oz = 0.0
                 if always_in:
-                    lots = _snap_lots(capital_jpy)
+                    lots = _snap_lots(capital_jpy, price, usd_jpy, leverage)
                     if lots >= 0.01:
                         oz = lots * LOT_OZ
                         entry_capital_jpy = capital_jpy
@@ -418,7 +425,7 @@ def run_backtest(config: dict[str, Any]) -> BacktestResult:
                 ))
                 side = "none"; entry_lots = 0.0; entry_oz = 0.0
                 if always_in:
-                    lots = _snap_lots(capital_jpy)
+                    lots = _snap_lots(capital_jpy, price, usd_jpy, leverage)
                     if lots >= 0.01:
                         oz = lots * LOT_OZ
                         entry_capital_jpy = capital_jpy

@@ -182,6 +182,7 @@ export default function StrategyBuilder({ onRun, loading, preloadConfig, setting
       period, interval,
       initial_capital: settings.initial_capital,
       usd_jpy: settings.usd_jpy,
+      leverage: settings.leverage,
       entry_conditions: entryConditions,
       entry_logic: entryLogic,
       exit_conditions: exitConditions,
@@ -194,13 +195,14 @@ export default function StrategyBuilder({ onRun, loading, preloadConfig, setting
   }
 
   const indicators = meta?.indicators || []
-  const maxLots = calcMaxLots(settings.initial_capital)
+  const maxLots = calcMaxLots(settings.initial_capital, settings.leverage, 2500, settings.usd_jpy)
 
   return (
     <div className="space-y-4">
       {/* Active settings summary */}
       <div className="bg-gray-700/40 rounded-lg px-3 py-2 text-xs text-gray-400 flex flex-wrap gap-x-4 gap-y-1">
         <span>証拠金: <span className="text-amber-400">¥{settings.initial_capital.toLocaleString('ja-JP')}</span></span>
+        <span>レバレッジ: <span className="text-blue-400">{settings.leverage}倍</span></span>
         <span>最大: <span className="text-amber-400">{maxLots.toFixed(2)}lot</span></span>
         <span>損切: <span className="text-red-400">{settings.stop_loss_pct || '—'}%</span></span>
         <span>利確: <span className="text-green-400">{settings.take_profit_pct || '—'}%</span></span>

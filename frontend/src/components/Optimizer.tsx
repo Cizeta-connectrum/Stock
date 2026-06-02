@@ -43,6 +43,7 @@ interface RunConfig {
   stop_loss: number
   take_profit: number
   usd_jpy?: number
+  leverage?: number
 }
 
 const INDICATOR_LABEL: Record<string, string> = {
@@ -102,6 +103,7 @@ function buildStrategyConfig(row: OptimizeResultRow, run: RunConfig, capital: nu
     interval: run.interval,
     initial_capital: capital,
     usd_jpy: run.usd_jpy ?? 150,
+    leverage: run.leverage ?? 500,
     entry_conditions,
     entry_logic: 'AND',
     exit_conditions,
@@ -236,6 +238,7 @@ export default function Optimizer({ onApply, settings }: { onApply?: (config: St
       indicator, period, interval,
       initial_capital: settings.initial_capital,
       usd_jpy: settings.usd_jpy,
+      leverage: settings.leverage,
       trading_mode: tradingMode,
       stop_loss_pct: settings.stop_loss_pct,
       take_profit_pct: settings.take_profit_pct,
@@ -448,7 +451,7 @@ export default function Optimizer({ onApply, settings }: { onApply?: (config: St
                   <div className="bg-gray-800 rounded-xl overflow-hidden">
                     <ResultsTable
                       rows={results}
-                      runConfig={{ indicator, period, interval, trading_mode: tradingMode, commission: settings.commission_pct, stop_loss: settings.stop_loss_pct, take_profit: settings.take_profit_pct }}
+                      runConfig={{ indicator, period, interval, trading_mode: tradingMode, commission: settings.commission_pct, stop_loss: settings.stop_loss_pct, take_profit: settings.take_profit_pct, usd_jpy: settings.usd_jpy, leverage: settings.leverage }}
                       capital={settings.initial_capital}
                       onApply={onApply}
                     />
