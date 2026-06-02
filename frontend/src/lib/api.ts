@@ -138,9 +138,31 @@ export interface OptimizeRun {
   results: OptimizeResultRow[]
 }
 
-export async function runOptimize(req: OptimizeRequest): Promise<{ results: OptimizeResultRow[]; count: number; run_id: number }> {
-  const res = await axios.post(`${BASE}/api/optimize`, req)
-  return res.data
+export async function runOptimizeStream(
+  req: OptimizeRequest,
+  onProgress: (current: number, total: number, label: string) => void,
+): Promise<{ results: OptimizeResultRow[]; count: number; run_id: number }> {
+  const response = await fetch(`${BASE}/api/optimize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  })
+  if (!response.ok) throw new Error(`HTTP ${response.status}`)
+  const reader = response.body!.getReader()
+  const decoder = new TextDecoder()
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    const text = decoder.decode(value)
+    for (const line of text.split('\n')) {
+      if (!line.startsWith('data: ')) continue
+      const data = JSON.parse(line.slice(6))
+      if (data.error) throw new Error(data.error)
+      if (data.done) return { results: data.results, count: data.count, run_id: data.run_id }
+      onProgress(data.current, data.total, data.label)
+    }
+  }
+  throw new Error('Stream ended unexpectedly')
 }
 
 export async function fetchOptimizeHistory(): Promise<{ runs: OptimizeRun[] }> {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { OptimizeRequest, OptimizeResultRow, OptimizeRun, StrategyConfig, ConditionSpec } from '../lib/api'
-import { runOptimize, fetchOptimizeHistory, deleteOptimizeRun } from '../lib/api'
+import { runOptimizeStream, fetchOptimizeHistory, deleteOptimizeRun } from '../lib/api'
 
 const PERIOD_OPTIONS = [
   { value: '3mo', label: '3ヶ月' },
@@ -165,6 +165,7 @@ export default function Optimizer({ onApply }: { onApply?: (config: StrategyConf
   const [error, setError] = useState<string | null>(null)
   const [results, setResults] = useState<OptimizeResultRow[] | null>(null)
   const [elapsed, setElapsed] = useState<number | null>(null)
+  const [progress, setProgress] = useState<{ current: number; total: number; label: string } | null>(null)
 
   const [view, setView] = useState<MainView>('current')
   const [history, setHistory] = useState<OptimizeRun[]>([])
@@ -183,6 +184,7 @@ export default function Optimizer({ onApply }: { onApply?: (config: StrategyConf
     setLoading(true)
     setError(null)
     setResults(null)
+    setProgress(null)
     const t0 = Date.now()
     const req: OptimizeRequest = {
       indicator, period, interval,
@@ -195,9 +197,12 @@ export default function Optimizer({ onApply }: { onApply?: (config: StrategyConf
       top_n: 20,
     }
     try {
-      const res = await runOptimize(req)
+      const res = await runOptimizeStream(req, (current, total, label) => {
+        setProgress({ current, total, label })
+      })
       setResults(res.results)
       setElapsed(Date.now() - t0)
+      setProgress(null)
       setView('current')
       await loadHistory()
     } catch (e: unknown) {
@@ -356,11 +361,28 @@ export default function Optimizer({ onApply }: { onApply?: (config: StrategyConf
         {view === 'current' && (
           <>
             {loading && (
-              <div className="flex items-center justify-center h-48">
-                <div className="text-center space-y-3">
-                  <div className="w-10 h-10 border-4 border-amber-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
-                  <p className="text-gray-400 text-sm">{indicatorInfo.label}のパラメータを探索中...</p>
+              <div className="bg-gray-800 rounded-xl p-6 space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-5 h-5 border-3 border-amber-500 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                  <p className="text-sm text-gray-300 font-medium">{indicatorInfo.label}を探索中...</p>
                 </div>
+                {progress && progress.total > 0 && (
+                  <div className="space-y-2">
+                    {/* Progress bar */}
+                    <div className="w-full bg-gray-700 rounded-full h-2.5">
+                      <div
+                        className="bg-amber-500 h-2.5 rounded-full transition-all duration-300"
+                        style={{ width: `${(progress.current / progress.total) * 100}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-xs text-gray-400">
+                      <span className="truncate max-w-xs">{progress.label}</span>
+                      <span className="flex-shrink-0 ml-2 font-mono text-amber-400">
+                        {progress.current} / {progress.total}
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
             {!loading && !results && (

@@ -4,13 +4,19 @@ FastAPI backend for the Gold Backtesting Platform.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import math
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import yfinance as yf
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+
+_executor = ThreadPoolExecutor(max_workers=2)
 
 from backtester import fetch_gold_data, run_backtest
 from strategies import PRESET_STRATEGIES
@@ -218,36 +224,58 @@ class OptimizeRequest(BaseModel):
 @app.post("/api/optimize")
 async def optimize(req: OptimizeRequest):
     """
-    Grid-search over indicator parameters and return the top combinations ranked by profit factor.
+    Grid-search with SSE progress streaming.
     """
-    try:
-        results = run_optimization(
+    progress: dict[str, Any] = {"current": 0, "total": 0, "label": ""}
+
+    def progress_callback(current: int, total: int, label: str) -> None:
+        progress["current"] = current
+        progress["total"] = total
+        progress["label"] = label
+
+    def run() -> list:
+        try:
+            return run_optimization(
+                indicator=req.indicator,
+                period=req.period,
+                interval=req.interval,
+                initial_capital=req.initial_capital,
+                trading_mode=req.trading_mode,
+                stop_loss_pct=req.stop_loss_pct,
+                take_profit_pct=req.take_profit_pct,
+                commission_pct=req.commission_pct,
+                min_trades=req.min_trades,
+                top_n=req.top_n,
+                progress_callback=progress_callback,
+            )
+        except Exception as exc:
+            raise exc
+
+    async def stream():
+        loop = asyncio.get_event_loop()
+        future = loop.run_in_executor(_executor, run)
+        while not future.done():
+            data = json.dumps({"current": progress["current"], "total": progress["total"], "label": progress["label"]})
+            yield f"data: {data}\n\n"
+            await asyncio.sleep(0.5)
+        try:
+            results = await future
+        except Exception as exc:
+            yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+            return
+        run_id = save_optimization_run(
             indicator=req.indicator,
             period=req.period,
             interval=req.interval,
-            initial_capital=req.initial_capital,
             trading_mode=req.trading_mode,
-            stop_loss_pct=req.stop_loss_pct,
-            take_profit_pct=req.take_profit_pct,
-            commission_pct=req.commission_pct,
-            min_trades=req.min_trades,
-            top_n=req.top_n,
+            commission=req.commission_pct,
+            stop_loss=req.stop_loss_pct,
+            take_profit=req.take_profit_pct,
+            results=results,
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Optimization error: {exc}")
-    run_id = save_optimization_run(
-        indicator=req.indicator,
-        period=req.period,
-        interval=req.interval,
-        trading_mode=req.trading_mode,
-        commission=req.commission_pct,
-        stop_loss=req.stop_loss_pct,
-        take_profit=req.take_profit_pct,
-        results=results,
-    )
-    return {"results": results, "count": len(results), "run_id": run_id}
+        yield f"data: {json.dumps({'done': True, 'results': results, 'count': len(results), 'run_id': run_id})}\n\n"
+
+    return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.get("/api/optimize/history")

@@ -127,6 +127,7 @@ def run_optimization(
     commission_pct: float,
     min_trades: int,
     top_n: int,
+    progress_callback=None,
 ) -> list[dict[str, Any]]:
     builder = COMBO_BUILDERS.get(indicator.upper())
     if builder is None:
@@ -138,7 +139,10 @@ def run_optimization(
     # Pre-fetch data once so every combo reuses it (avoids repeated I/O)
     df = fetch_gold_data(period, interval)
 
-    for combo in combos:
+    total = len(combos)
+    for idx, combo in enumerate(combos):
+        if progress_callback:
+            progress_callback(idx + 1, total, combo["label"])
         config = {
             "period": period,
             "interval": interval,
