@@ -85,11 +85,9 @@ export default function App() {
       </nav>
 
       <div className="max-w-screen-xl mx-auto p-3 md:p-6">
-        {tab === 'data' ? (
-          <DataManager />
-        ) : tab === 'optimize' ? (
-          <Optimizer onApply={handleApplyOptimize} />
-        ) : (
+        <div className={tab === 'data' ? 'block' : 'hidden'}><DataManager /></div>
+        <div className={tab === 'optimize' ? 'block' : 'hidden'}><Optimizer onApply={handleApplyOptimize} /></div>
+        <div className={tab === 'backtest' ? 'block' : 'hidden'}>
           <div className="flex flex-col lg:flex-row gap-4 lg:gap-6">
             {/* Settings panel */}
             <aside className="lg:w-96 flex-shrink-0">
@@ -140,7 +138,7 @@ export default function App() {
               {!loading && result && <ResultsDashboard result={result} />}
             </main>
           </div>
-        )}
+        </div>
       </div>
     </div>
   )
