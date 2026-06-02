@@ -370,13 +370,13 @@ def run_optimization(
     period: str,
     interval: str,
     initial_capital: float,
-    usd_jpy: float = 150.0,
-    trading_mode: str = "long_only",
     stop_loss_pct: float,
     take_profit_pct: float,
     commission_pct: float,
     min_trades: int,
     top_n: int,
+    trading_mode: str = "long_only",
+    usd_jpy: float = 150.0,
     progress_callback=None,
 ) -> list[dict[str, Any]]:
     builder = COMBO_BUILDERS.get(indicator.upper())
