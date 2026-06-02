@@ -271,29 +271,38 @@ async def optimize(req: OptimizeRequest):
     async def stream():
         loop = asyncio.get_event_loop()
         future = loop.run_in_executor(_executor, run)
-        while not future.done():
-            data = json.dumps({"current": progress["current"], "total": progress["total"], "label": progress["label"]})
-            yield f"data: {data}\n\n"
-            await asyncio.sleep(0.5)
         try:
-            results = await future
+            while not future.done():
+                data = json.dumps({"current": progress["current"], "total": progress["total"], "label": progress["label"]})
+                yield f"data: {data}\n\n"
+                await asyncio.sleep(0.5)
+            try:
+                results = await future
+            except Exception as exc:
+                yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+                return
+            try:
+                run_id = save_optimization_run(
+                    indicator=req.indicator,
+                    period=req.period,
+                    interval=req.interval,
+                    trading_mode=req.trading_mode,
+                    commission=req.commission_pct,
+                    stop_loss=req.stop_loss_pct,
+                    take_profit=req.take_profit_pct,
+                    results=results,
+                )
+            except Exception as exc:
+                import traceback
+                print(f"[WARN] save_optimization_run failed: {exc}\n{traceback.format_exc()}")
+                run_id = -1
+            yield f"data: {json.dumps({'done': True, 'results': results, 'count': len(results), 'run_id': run_id})}\n\n"
+            # Upload DB in background after sending done event
+            loop.run_in_executor(_executor, upload_db)
         except Exception as exc:
+            import traceback
+            print(f"[ERROR] stream() failed: {exc}\n{traceback.format_exc()}")
             yield f"data: {json.dumps({'error': str(exc)})}\n\n"
-            return
-        run_id = save_optimization_run(
-            indicator=req.indicator,
-            period=req.period,
-            interval=req.interval,
-            trading_mode=req.trading_mode,
-            commission=req.commission_pct,
-            stop_loss=req.stop_loss_pct,
-            take_profit=req.take_profit_pct,
-            results=results,
-        )
-        yield f"data: {json.dumps({'done': True, 'results': results, 'count': len(results), 'run_id': run_id})}\n\n"
-        # Upload DB in background after sending done event
-        loop = asyncio.get_event_loop()
-        loop.run_in_executor(_executor, upload_db)
 
     return StreamingResponse(stream(), media_type="text/event-stream", headers={
         "Cache-Control": "no-cache",
