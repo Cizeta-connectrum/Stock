@@ -10,20 +10,27 @@ const PERIOD_OPTIONS = [
   { value: '5y',  label: '5年' },
 ]
 const INTERVAL_OPTIONS = [
-  { value: '5m',  label: '5分足' },
-  { value: '15m', label: '15分足' },
+  { value: '5m',  label: '5分足 ⚡' },
+  { value: '15m', label: '15分足 ⚡' },
   { value: '1h',  label: '1時間足' },
   { value: '1d',  label: '日足' },
   { value: '1wk', label: '週足' },
 ]
-const INDICATOR_OPTIONS: { value: 'SMA' | 'EMA' | 'MACD' | 'RSI' | 'BB' | 'STOCH' | 'EMA_RSI'; label: string; desc: string }[] = [
-  { value: 'SMA',     label: 'SMA クロス',         desc: 'fast × slow 全ペア (~10)' },
-  { value: 'EMA',     label: 'EMA クロス',         desc: 'fast × slow 全ペア (~10)' },
-  { value: 'MACD',    label: 'MACD クロス',        desc: 'MACD線 × シグナル線 (8組)' },
-  { value: 'RSI',     label: 'RSI 逆張り',         desc: '閾値の全組み合わせ (60)' },
-  { value: 'BB',      label: 'ボリンジャーバンド',  desc: 'period × σ (16)' },
-  { value: 'STOCH',   label: 'ストキャスティクス',  desc: '%K クロス 閾値 (36)' },
-  { value: 'EMA_RSI', label: 'EMA + RSI 複合',     desc: 'トレンドフィルター + 逆張り (24)' },
+
+const SCALPING_INDICATORS = new Set(['SCALP_EMA', 'VWMA', 'RSI_BB'])
+type IndicatorId = 'SMA' | 'EMA' | 'MACD' | 'RSI' | 'BB' | 'STOCH' | 'EMA_RSI' | 'SCALP_EMA' | 'VWMA' | 'RSI_BB'
+
+const INDICATOR_OPTIONS: { value: IndicatorId; label: string; desc: string; scalping?: boolean }[] = [
+  { value: 'SMA',      label: 'SMA クロス',         desc: 'fast × slow 全ペア (~10)' },
+  { value: 'EMA',      label: 'EMA クロス',         desc: 'fast × slow 全ペア (~10)' },
+  { value: 'MACD',     label: 'MACD クロス',        desc: 'MACD線 × シグナル線 (8組)' },
+  { value: 'RSI',      label: 'RSI 逆張り',         desc: '閾値の全組み合わせ (60)' },
+  { value: 'BB',       label: 'ボリンジャーバンド',  desc: 'period × σ (16)' },
+  { value: 'STOCH',    label: 'ストキャスティクス',  desc: '%K クロス 閾値 (36)' },
+  { value: 'EMA_RSI',  label: 'EMA + RSI 複合',     desc: 'トレンドフィルター + 逆張り (24)' },
+  { value: 'SCALP_EMA', label: '⚡ 超高速 EMA',      desc: '3/5/8 × 13/21/34 (9組)', scalping: true },
+  { value: 'VWMA',     label: '⚡ VWMA クロス',      desc: '出来高加重MA (3組)', scalping: true },
+  { value: 'RSI_BB',   label: '⚡ RSI+BB 二重確認',  desc: 'RSI売られすぎ + BB下限 (48組)', scalping: true },
 ]
 
 interface RunConfig {
@@ -39,6 +46,7 @@ interface RunConfig {
 const INDICATOR_LABEL: Record<string, string> = {
   SMA: 'SMA クロス', EMA: 'EMA クロス', MACD: 'MACD クロス',
   RSI: 'RSI 逆張り', BB: 'ボリンジャーバンド', STOCH: 'ストキャスティクス', EMA_RSI: 'EMA+RSI 複合',
+  SCALP_EMA: '⚡ 超高速 EMA', VWMA: '⚡ VWMA クロス', RSI_BB: '⚡ RSI+BB 二重確認',
 }
 
 function buildStrategyConfig(row: OptimizeResultRow, run: RunConfig, capital: number): StrategyConfig {
@@ -69,6 +77,18 @@ function buildStrategyConfig(row: OptimizeResultRow, run: RunConfig, capital: nu
       { indicator: 'RSI',   params: { period: p.rsi_period }, condition: 'crosses_below', target: { value: p.oversold } },
     ]
     exit_conditions = [{ indicator: 'RSI', params: { period: p.rsi_period }, condition: 'crosses_above', target: { value: p.overbought } }]
+  } else if (run.indicator === 'SCALP_EMA') {
+    entry_conditions = [{ indicator: 'EMA', params: { period: p.fast }, condition: 'crosses_above', target: { indicator: 'EMA', params: { period: p.slow } } }]
+    exit_conditions  = [{ indicator: 'EMA', params: { period: p.fast }, condition: 'crosses_below', target: { indicator: 'EMA', params: { period: p.slow } } }]
+  } else if (run.indicator === 'VWMA') {
+    entry_conditions = [{ indicator: 'PRICE', params: {}, condition: 'crosses_above', target: { indicator: 'VWMA', params: { period: p.period } } }]
+    exit_conditions  = [{ indicator: 'PRICE', params: {}, condition: 'crosses_below', target: { indicator: 'VWMA', params: { period: p.period } } }]
+  } else if (run.indicator === 'RSI_BB') {
+    entry_conditions = [
+      { indicator: 'RSI',   params: { period: p.rsi_period }, condition: 'below', target: { value: p.oversold } },
+      { indicator: 'PRICE', params: {}, condition: 'below', target: { indicator: 'BB', params: { period: p.bb_period, std_dev: p.bb_std }, sub: 'lower' } },
+    ]
+    exit_conditions = [{ indicator: 'RSI', params: { period: p.rsi_period }, condition: 'above', target: { value: p.overbought } }]
   } else {
     // BB
     entry_conditions = [{ indicator: 'PRICE', params: {}, condition: 'crosses_below', target: { indicator: 'BB', params: { period: p.period, std_dev: p.std_dev }, sub: 'lower' } }]
@@ -178,7 +198,7 @@ function ResultsTable({ rows, globalRank = false, runConfig, capital, onApply }:
 type MainView = 'current' | 'archive' | 'top'
 
 export default function Optimizer({ onApply }: { onApply?: (config: StrategyConfig) => void }) {
-  const [indicator, setIndicator] = useState<'SMA' | 'EMA' | 'MACD' | 'RSI' | 'BB' | 'STOCH' | 'EMA_RSI'>('SMA')
+  const [indicator, setIndicator] = useState<IndicatorId>('SMA')
   const [period, setPeriod] = useState('1y')
   const [interval, setInterval] = useState('1d')
   const [capital, setCapital] = useState(10000)
@@ -352,6 +372,12 @@ export default function Optimizer({ onApply }: { onApply?: (config: StrategyConf
                 className="w-full bg-gray-700 text-white rounded px-2 py-1.5 text-sm" />
             </div>
           </div>
+
+          {SCALPING_INDICATORS.has(indicator) && !['5m', '15m'].includes(interval) && (
+            <div className="text-xs bg-amber-900/30 border border-amber-700/50 rounded px-3 py-2 text-amber-300">
+              ⚡ スキャルピング戦略は 5分足・15分足 推奨です
+            </div>
+          )}
 
           <button onClick={handleRun} disabled={loading}
             className="w-full py-3 rounded-lg font-semibold bg-amber-500 hover:bg-amber-400 text-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed">

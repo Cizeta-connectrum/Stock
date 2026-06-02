@@ -18,6 +18,13 @@ def calc_sma(series: pd.Series, period: int) -> pd.Series:
     return series.rolling(window=period).mean()
 
 
+def calc_vwma(series: pd.Series, volume: pd.Series, period: int) -> pd.Series:
+    """Volume Weighted Moving Average — falls back to SMA when volume is zero."""
+    vol_safe = volume.replace(0, np.nan)
+    vwma = (series * vol_safe).rolling(period).sum() / vol_safe.rolling(period).sum()
+    return vwma.fillna(calc_sma(series, period))
+
+
 def calc_ema(series: pd.Series, period: int) -> pd.Series:
     return series.ewm(span=period, adjust=False).mean()
 
@@ -115,6 +122,10 @@ def get_indicator_series(
         result = calc_bollinger_bands(close, period, std_dev)
         key = sub if sub in result else "middle"
         return result[key]
+
+    if ind == "VWMA":
+        period = int(params.get("period", 20))
+        return calc_vwma(close, df["Volume"], period)
 
     if ind in ("STOCH", "STOCHASTIC"):
         k_period = int(params.get("k_period", 14))

@@ -41,6 +41,18 @@ EMA_RSI_RSI_PERIODS = [7, 14]
 EMA_RSI_OVERSOLD    = [25, 30]
 EMA_RSI_OVERBOUGHT  = [65, 70]
 
+# Scalping-specific
+SCALP_EMA_FAST      = [3, 5, 8]
+SCALP_EMA_SLOW      = [13, 21, 34]
+
+VWMA_PERIODS        = [10, 20, 50]
+
+RSI_BB_RSI_PERIODS  = [7, 9, 14]
+RSI_BB_OVERSOLD     = [25, 30]
+RSI_BB_OVERBOUGHT   = [65, 70]
+RSI_BB_BB_PERIODS   = [10, 20]
+RSI_BB_BB_STDS      = [1.5, 2.0]
+
 
 def _build_sma_combos() -> list[dict[str, Any]]:
     combos = []
@@ -244,14 +256,108 @@ def _build_ema_rsi_combos() -> list[dict[str, Any]]:
     return combos
 
 
+def _build_scalp_ema_combos() -> list[dict[str, Any]]:
+    combos = []
+    for fast, slow in itertools.product(SCALP_EMA_FAST, SCALP_EMA_SLOW):
+        combos.append({
+            "label": f"ScalpEMA {fast}/{slow}",
+            "params": {"fast": fast, "slow": slow},
+            "entry_conditions": [
+                {
+                    "indicator": "EMA",
+                    "params": {"period": fast},
+                    "condition": "crosses_above",
+                    "target": {"indicator": "EMA", "params": {"period": slow}},
+                }
+            ],
+            "exit_conditions": [
+                {
+                    "indicator": "EMA",
+                    "params": {"period": fast},
+                    "condition": "crosses_below",
+                    "target": {"indicator": "EMA", "params": {"period": slow}},
+                }
+            ],
+        })
+    return combos
+
+
+def _build_vwma_combos() -> list[dict[str, Any]]:
+    combos = []
+    for period in VWMA_PERIODS:
+        combos.append({
+            "label": f"VWMA({period})",
+            "params": {"period": period},
+            "entry_conditions": [
+                {
+                    "indicator": "PRICE",
+                    "params": {},
+                    "condition": "crosses_above",
+                    "target": {"indicator": "VWMA", "params": {"period": period}},
+                }
+            ],
+            "exit_conditions": [
+                {
+                    "indicator": "PRICE",
+                    "params": {},
+                    "condition": "crosses_below",
+                    "target": {"indicator": "VWMA", "params": {"period": period}},
+                }
+            ],
+        })
+    return combos
+
+
+def _build_rsi_bb_combos() -> list[dict[str, Any]]:
+    """Dual-confirmation: RSI oversold AND price below BB lower → entry."""
+    combos = []
+    for rsi_period, oversold, overbought, bb_period, bb_std in itertools.product(
+        RSI_BB_RSI_PERIODS, RSI_BB_OVERSOLD, RSI_BB_OVERBOUGHT,
+        RSI_BB_BB_PERIODS, RSI_BB_BB_STDS,
+    ):
+        combos.append({
+            "label": f"RSI({rsi_period})+BB({bb_period},{bb_std}σ) <{oversold} / >{overbought}",
+            "params": {
+                "rsi_period": rsi_period, "oversold": oversold, "overbought": overbought,
+                "bb_period": bb_period, "bb_std": bb_std,
+            },
+            "entry_conditions": [
+                {
+                    "indicator": "RSI",
+                    "params": {"period": rsi_period},
+                    "condition": "below",
+                    "target": {"value": oversold},
+                },
+                {
+                    "indicator": "PRICE",
+                    "params": {},
+                    "condition": "below",
+                    "target": {"indicator": "BB", "params": {"period": bb_period, "std_dev": bb_std}, "sub": "lower"},
+                },
+            ],
+            "exit_conditions": [
+                {
+                    "indicator": "RSI",
+                    "params": {"period": rsi_period},
+                    "condition": "above",
+                    "target": {"value": overbought},
+                },
+            ],
+        })
+    return combos
+
+
 COMBO_BUILDERS = {
-    "SMA":     _build_sma_combos,
-    "EMA":     _build_ema_combos,
-    "MACD":    _build_macd_combos,
-    "RSI":     _build_rsi_combos,
-    "BB":      _build_bb_combos,
-    "STOCH":   _build_stoch_combos,
-    "EMA_RSI": _build_ema_rsi_combos,
+    "SMA":      _build_sma_combos,
+    "EMA":      _build_ema_combos,
+    "MACD":     _build_macd_combos,
+    "RSI":      _build_rsi_combos,
+    "BB":       _build_bb_combos,
+    "STOCH":    _build_stoch_combos,
+    "EMA_RSI":  _build_ema_rsi_combos,
+    "SCALP_EMA": _build_scalp_ema_combos,
+    "VWMA":     _build_vwma_combos,
+    "RSI_BB":   _build_rsi_bb_combos,
 }
 
 
