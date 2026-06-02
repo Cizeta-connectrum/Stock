@@ -71,7 +71,8 @@ class ConditionSpec(BaseModel):
 class StrategyConfig(BaseModel):
     period: str = "1y"
     interval: str = "1d"
-    initial_capital: float = 10000.0
+    initial_capital: float = 1_000_000.0
+    usd_jpy: float = 150.0
     entry_conditions: list[ConditionSpec] = []
     entry_logic: str = "AND"
     exit_conditions: list[ConditionSpec] = []
@@ -226,7 +227,8 @@ class OptimizeRequest(BaseModel):
     indicator: str = "SMA"          # "SMA" | "RSI" | "BB"
     period: str = "1y"
     interval: str = "1d"
-    initial_capital: float = 10000.0
+    initial_capital: float = 1_000_000.0
+    usd_jpy: float = 150.0
     trading_mode: str = "long_only"
     stop_loss_pct: float = 0.0
     take_profit_pct: float = 0.0
@@ -254,6 +256,7 @@ async def optimize(req: OptimizeRequest):
                 period=req.period,
                 interval=req.interval,
                 initial_capital=req.initial_capital,
+                usd_jpy=req.usd_jpy,
                 trading_mode=req.trading_mode,
                 stop_loss_pct=req.stop_loss_pct,
                 take_profit_pct=req.take_profit_pct,

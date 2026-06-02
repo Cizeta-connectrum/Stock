@@ -3,15 +3,19 @@ import StrategyBuilder from './components/StrategyBuilder'
 import ResultsDashboard from './components/ResultsDashboard'
 import DataManager from './components/DataManager'
 import Optimizer from './components/Optimizer'
+import SettingsPanel from './components/Settings'
 import type { BacktestResult, StrategyConfig } from './lib/api'
 import { runBacktest } from './lib/api'
+import { loadSettings, saveSettings } from './lib/settings'
+import type { TradingSettings } from './lib/settings'
 
-type Tab = 'backtest' | 'optimize' | 'data'
+type Tab = 'backtest' | 'optimize' | 'data' | 'settings'
 
 const TAB_ITEMS: { id: Tab; label: string; icon: string }[] = [
   { id: 'backtest',  label: 'バックテスト', icon: '▶' },
   { id: 'optimize',  label: '最適化',       icon: '⚙' },
   { id: 'data',      label: 'データ',       icon: '↓' },
+  { id: 'settings',  label: '設定',         icon: '⚙︎' },
 ]
 
 export default function App() {
@@ -21,6 +25,12 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [preloadConfig, setPreloadConfig] = useState<StrategyConfig | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(true)
+  const [tradingSettings, setTradingSettings] = useState<TradingSettings>(loadSettings)
+
+  function handleSaveSettings(s: TradingSettings) {
+    saveSettings(s)
+    setTradingSettings(s)
+  }
 
   function handleApplyOptimize(config: StrategyConfig) {
     setPreloadConfig(config)
@@ -52,8 +62,8 @@ export default function App() {
           <div className="flex items-center gap-2">
             <div className="text-xl text-amber-400">▲</div>
             <div>
-              <h1 className="text-base font-bold text-amber-400 leading-tight">Gold Backtest</h1>
-              <p className="text-xs text-gray-500 hidden sm:block">ゴールド先物バックテスト</p>
+              <h1 className="text-base font-bold text-amber-400 leading-tight">FX Backtest</h1>
+              <p className="text-xs text-gray-500 hidden sm:block">ゴールド FX バックテスト（円建て）</p>
             </div>
           </div>
           {/* Desktop tabs */}
@@ -85,14 +95,18 @@ export default function App() {
       </nav>
 
       <div className="max-w-screen-xl mx-auto p-3 md:p-6">
-        <div className={tab === 'data' ? 'block' : 'hidden'}><DataManager /></div>
-        <div className={tab === 'optimize' ? 'block' : 'hidden'}><Optimizer onApply={handleApplyOptimize} /></div>
+        <div className={tab === 'data'     ? 'block' : 'hidden'}><DataManager /></div>
+        <div className={tab === 'settings' ? 'block' : 'hidden'}>
+          <SettingsPanel settings={tradingSettings} onSave={handleSaveSettings} />
+        </div>
+        <div className={tab === 'optimize' ? 'block' : 'hidden'}>
+          <Optimizer onApply={handleApplyOptimize} settings={tradingSettings} />
+        </div>
         <div className={tab === 'backtest' ? 'block' : 'hidden'}>
           <div className="flex flex-col lg:flex-row gap-4 lg:gap-6">
             {/* Settings panel */}
             <aside className="lg:w-96 flex-shrink-0">
               <div className="bg-gray-800 rounded-xl lg:sticky lg:top-20">
-                {/* Mobile toggle header */}
                 <button
                   className="lg:hidden w-full flex items-center justify-between px-5 py-3"
                   onClick={() => setSettingsOpen(o => !o)}
@@ -103,13 +117,17 @@ export default function App() {
                   </span>
                   <span className="text-gray-400 text-lg">{settingsOpen ? '▲' : '▼'}</span>
                 </button>
-                {/* Desktop header */}
                 <div className="hidden lg:flex items-center gap-2 px-5 pt-5 pb-4">
                   <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />
                   <h2 className="text-sm font-semibold text-gray-200">戦略設定</h2>
                 </div>
                 <div className={`px-5 pb-5 ${settingsOpen ? 'block' : 'hidden lg:block'}`}>
-                  <StrategyBuilder onRun={handleRun} loading={loading} preloadConfig={preloadConfig} />
+                  <StrategyBuilder
+                    onRun={handleRun}
+                    loading={loading}
+                    preloadConfig={preloadConfig}
+                    settings={tradingSettings}
+                  />
                 </div>
               </div>
             </aside>
@@ -132,7 +150,7 @@ export default function App() {
                 <div className="flex flex-col items-center justify-center h-48 text-center space-y-2">
                   <div className="text-4xl text-amber-500/30">▲</div>
                   <p className="text-gray-400 text-sm">戦略を設定してバックテストを実行してください</p>
-                  <p className="text-xs text-gray-500">分足データは「データ」タブで先にダウンロード</p>
+                  <p className="text-xs text-gray-500">損切り・利確・手数料は「設定」タブで変更できます</p>
                 </div>
               )}
               {!loading && result && <ResultsDashboard result={result} />}

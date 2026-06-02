@@ -33,7 +33,7 @@ class Trade:
     exit_date: str | None
     entry_price: float
     exit_price: float | None
-    shares: float
+    lots: float
     pnl: float
     pnl_pct: float
     exit_reason: str  # "signal" | "stop_loss" | "take_profit" | "end_of_data"
@@ -53,6 +53,16 @@ class BacktestResult:
 # ---------------------------------------------------------------------------
 # Helper utilities
 # ---------------------------------------------------------------------------
+
+LOT_MARGIN_JPY = 10_000.0   # JPY margin per 0.01 lot
+LOT_OZ         = 100.0      # oz per standard lot
+
+
+def _snap_lots(capital_jpy: float) -> float:
+    """Floor capital to nearest tradeable 0.01-lot increment."""
+    n = math.floor(capital_jpy / LOT_MARGIN_JPY)
+    return n * 0.01
+
 
 def _period_to_days(period: str) -> int:
     mapping = {
@@ -278,114 +288,72 @@ def build_indicator_overlays(
 # Core backtesting loop
 # ---------------------------------------------------------------------------
 
-def _close_long(
-    position: float, entry_capital: float, entry_price: float, entry_date: str,
-    entry_index: int, exit_price: float, exit_date: str, exit_index: int,
-    dates: Any, commission_pct: float, exit_reason: str,
-) -> tuple[float, Trade]:
-    exit_value = position * exit_price
-    exit_commission = exit_value * commission_pct / 100
-    exit_value -= exit_commission
-    pnl = exit_value - entry_capital
-    pnl_pct = pnl / entry_capital * 100
-    duration = (dates[exit_index] - dates[entry_index]).days
-    trade = Trade(
-        entry_date=entry_date, exit_date=exit_date,
-        entry_price=entry_price, exit_price=exit_price,
-        shares=position, pnl=pnl, pnl_pct=pnl_pct,
-        exit_reason=exit_reason, duration_days=duration, side="long",
-    )
-    return exit_value, trade
-
-
-def _close_short(
-    shares: float, entry_capital: float, entry_price: float, entry_date: str,
-    entry_index: int, exit_price: float, exit_date: str, exit_index: int,
-    dates: Any, commission_pct: float, exit_reason: str,
-) -> tuple[float, Trade]:
-    gross = entry_capital + shares * (entry_price - exit_price)
-    exit_commission = abs(gross) * commission_pct / 100
-    exit_value = gross - exit_commission
-    pnl = exit_value - entry_capital
-    pnl_pct = pnl / entry_capital * 100
-    duration = (dates[exit_index] - dates[entry_index]).days
-    trade = Trade(
-        entry_date=entry_date, exit_date=exit_date,
-        entry_price=entry_price, exit_price=exit_price,
-        shares=shares, pnl=pnl, pnl_pct=pnl_pct,
-        exit_reason=exit_reason, duration_days=duration, side="short",
-    )
-    return exit_value, trade
-
-
 def run_backtest(config: dict[str, Any]) -> BacktestResult:
-    """
-    Execute a backtest given a strategy configuration dict.
-    """
-    period = config.get("period", "1y")
-    interval = config.get("interval", "1d")
-    initial_capital = float(config.get("initial_capital", 10000))
+    period          = config.get("period", "1y")
+    interval        = config.get("interval", "1d")
+    initial_capital = float(config.get("initial_capital", 1_000_000))  # JPY
+    usd_jpy         = float(config.get("usd_jpy", 150.0))
     entry_conditions = config.get("entry_conditions", [])
-    exit_conditions = config.get("exit_conditions", [])
-    entry_logic = config.get("entry_logic", "AND")
-    exit_logic = config.get("exit_logic", "AND")
-    stop_loss_pct = float(config.get("stop_loss_pct", 0) or 0)
-    take_profit_pct = float(config.get("take_profit_pct", 0) or 0)
-    commission_pct = float(config.get("commission_pct", 0) or 0)
-    trading_mode = config.get("trading_mode", "long_only")  # "long_only" | "always_in"
-    always_in = trading_mode == "always_in"
+    exit_conditions  = config.get("exit_conditions", [])
+    entry_logic      = config.get("entry_logic", "AND")
+    exit_logic       = config.get("exit_logic", "AND")
+    stop_loss_pct    = float(config.get("stop_loss_pct", 0) or 0)
+    take_profit_pct  = float(config.get("take_profit_pct", 0) or 0)
+    commission_pct   = float(config.get("commission_pct", 0) or 0)
+    trading_mode     = config.get("trading_mode", "long_only")
+    always_in        = trading_mode == "always_in"
 
-    # --- Fetch data ---
     df = fetch_gold_data(period, interval)
-
-    # --- Build signal arrays ---
     entry_signals = combine_conditions(df, entry_conditions, entry_logic)
-    exit_signals = combine_conditions(df, exit_conditions, exit_logic)
+    exit_signals  = combine_conditions(df, exit_conditions,  exit_logic)
 
-    # --- Simulation ---
-    capital = initial_capital
-    position: float = 0.0       # shares (long) or notional shares (short)
-    entry_capital: float = 0.0  # capital committed at entry (after entry commission)
-    entry_price: float = 0.0
-    entry_date: str = ""
-    entry_index: int = -1
-    side: str = "none"           # "none" | "long" | "short"
+    capital_jpy        = initial_capital
+    entry_lots         = 0.0
+    entry_oz           = 0.0
+    entry_price        = 0.0
+    entry_date         = ""
+    entry_index        = -1
+    entry_capital_jpy  = 0.0   # capital BEFORE commission, used as pnl_pct denominator
+    side               = "none"
+    total_commission_jpy = 0.0
 
     trades: list[Trade] = []
-    equity_values: list[float] = []
+    equity_jpy: list[float] = []
 
     prices = df["Close"].values
-    dates = df.index
-    n = len(df)
+    dates  = df.index
+    n      = len(df)
 
     for i in range(n):
-        price = float(prices[i])
+        price    = float(prices[i])
         date_str = str(dates[i].date())
 
+        # ── Open position ─────────────────────────────────────────────────────
         if side == "none":
             if entry_signals.iloc[i]:
-                # Open long
-                entry_comm = capital * commission_pct / 100
-                capital -= entry_comm
-                entry_capital = capital
-                position = entry_capital / price
-                entry_price = price
-                entry_date = date_str
-                entry_index = i
-                capital = 0.0
-                side = "long"
+                lots = _snap_lots(capital_jpy)
+                if lots >= 0.01:
+                    oz = lots * LOT_OZ
+                    entry_capital_jpy = capital_jpy                  # before commission
+                    comm = oz * price * usd_jpy * commission_pct / 100
+                    capital_jpy -= comm
+                    total_commission_jpy += comm
+                    entry_lots, entry_oz = lots, oz
+                    entry_price, entry_date, entry_index = price, date_str, i
+                    side = "long"
             elif always_in and exit_signals.iloc[i]:
-                # Open short immediately
-                entry_comm = capital * commission_pct / 100
-                capital -= entry_comm
-                entry_capital = capital
-                position = entry_capital / price
-                entry_price = price
-                entry_date = date_str
-                entry_index = i
-                capital = 0.0
-                side = "short"
+                lots = _snap_lots(capital_jpy)
+                if lots >= 0.01:
+                    oz = lots * LOT_OZ
+                    entry_capital_jpy = capital_jpy
+                    comm = oz * price * usd_jpy * commission_pct / 100
+                    capital_jpy -= comm
+                    total_commission_jpy += comm
+                    entry_lots, entry_oz = lots, oz
+                    entry_price, entry_date, entry_index = price, date_str, i
+                    side = "short"
 
+        # ── Manage long position ───────────────────────────────────────────────
         elif side == "long":
             pnl_pct_now = (price - entry_price) / entry_price * 100
             exit_reason = None
@@ -397,27 +365,35 @@ def run_backtest(config: dict[str, Any]) -> BacktestResult:
                 exit_reason = "signal"
 
             if exit_reason:
-                capital, trade = _close_long(
-                    position, entry_capital, entry_price, entry_date, entry_index,
-                    price, date_str, i, dates, commission_pct, exit_reason,
-                )
-                trades.append(trade)
-                position = 0.0
-                side = "none"
-                # In always-in mode, immediately open short
+                pnl_usd  = entry_oz * (price - entry_price)
+                exit_comm = entry_oz * price * usd_jpy * commission_pct / 100
+                pnl_jpy  = pnl_usd * usd_jpy - exit_comm
+                capital_jpy += pnl_jpy
+                total_commission_jpy += exit_comm
+                pnl_pct_val = pnl_jpy / entry_capital_jpy * 100 if entry_capital_jpy > 0 else 0.0
+                duration = (dates[i] - dates[entry_index]).days
+                trades.append(Trade(
+                    entry_date=entry_date, exit_date=date_str,
+                    entry_price=round(entry_price, 2), exit_price=round(price, 2),
+                    lots=entry_lots, pnl=round(pnl_jpy, 0), pnl_pct=round(pnl_pct_val, 2),
+                    exit_reason=exit_reason, duration_days=duration, side="long",
+                ))
+                side = "none"; entry_lots = 0.0; entry_oz = 0.0
                 if always_in:
-                    entry_comm = capital * commission_pct / 100
-                    capital -= entry_comm
-                    entry_capital = capital
-                    position = entry_capital / price
-                    entry_price = price
-                    entry_date = date_str
-                    entry_index = i
-                    capital = 0.0
-                    side = "short"
+                    lots = _snap_lots(capital_jpy)
+                    if lots >= 0.01:
+                        oz = lots * LOT_OZ
+                        entry_capital_jpy = capital_jpy
+                        comm = oz * price * usd_jpy * commission_pct / 100
+                        capital_jpy -= comm
+                        total_commission_jpy += comm
+                        entry_lots, entry_oz = lots, oz
+                        entry_price, entry_date, entry_index = price, date_str, i
+                        side = "short"
 
+        # ── Manage short position ──────────────────────────────────────────────
         elif side == "short":
-            pnl_pct_now = (entry_price - price) / entry_price * 100  # profit when price falls
+            pnl_pct_now = (entry_price - price) / entry_price * 100
             exit_reason = None
             if stop_loss_pct > 0 and pnl_pct_now <= -stop_loss_pct:
                 exit_reason = "stop_loss"
@@ -427,117 +403,104 @@ def run_backtest(config: dict[str, Any]) -> BacktestResult:
                 exit_reason = "signal"
 
             if exit_reason:
-                capital, trade = _close_short(
-                    position, entry_capital, entry_price, entry_date, entry_index,
-                    price, date_str, i, dates, commission_pct, exit_reason,
-                )
-                trades.append(trade)
-                position = 0.0
-                side = "none"
-                # In always-in mode, immediately open long
+                pnl_usd  = entry_oz * (entry_price - price)
+                exit_comm = entry_oz * price * usd_jpy * commission_pct / 100
+                pnl_jpy  = pnl_usd * usd_jpy - exit_comm
+                capital_jpy += pnl_jpy
+                total_commission_jpy += exit_comm
+                pnl_pct_val = pnl_jpy / entry_capital_jpy * 100 if entry_capital_jpy > 0 else 0.0
+                duration = (dates[i] - dates[entry_index]).days
+                trades.append(Trade(
+                    entry_date=entry_date, exit_date=date_str,
+                    entry_price=round(entry_price, 2), exit_price=round(price, 2),
+                    lots=entry_lots, pnl=round(pnl_jpy, 0), pnl_pct=round(pnl_pct_val, 2),
+                    exit_reason=exit_reason, duration_days=duration, side="short",
+                ))
+                side = "none"; entry_lots = 0.0; entry_oz = 0.0
                 if always_in:
-                    entry_comm = capital * commission_pct / 100
-                    capital -= entry_comm
-                    entry_capital = capital
-                    position = entry_capital / price
-                    entry_price = price
-                    entry_date = date_str
-                    entry_index = i
-                    capital = 0.0
-                    side = "long"
+                    lots = _snap_lots(capital_jpy)
+                    if lots >= 0.01:
+                        oz = lots * LOT_OZ
+                        entry_capital_jpy = capital_jpy
+                        comm = oz * price * usd_jpy * commission_pct / 100
+                        capital_jpy -= comm
+                        total_commission_jpy += comm
+                        entry_lots, entry_oz = lots, oz
+                        entry_price, entry_date, entry_index = price, date_str, i
+                        side = "long"
 
-        # Current equity
+        # ── Equity snapshot ───────────────────────────────────────────────────
         if side == "long":
-            equity_values.append(capital + position * price)
+            equity_jpy.append(capital_jpy + entry_oz * (price - entry_price) * usd_jpy)
         elif side == "short":
-            equity_values.append(entry_capital + position * (entry_price - price))
+            equity_jpy.append(capital_jpy + entry_oz * (entry_price - price) * usd_jpy)
         else:
-            equity_values.append(capital)
+            equity_jpy.append(capital_jpy)
 
-    # Close any open position at end
-    if side == "long" and position > 0:
+    # ── Close any open position at end of data ────────────────────────────────
+    if side in ("long", "short") and entry_lots > 0:
         last_price = float(prices[-1])
-        capital, trade = _close_long(
-            position, entry_capital, entry_price, entry_date, entry_index,
-            last_price, str(dates[-1].date()), n - 1, dates, commission_pct, "end_of_data",
-        )
-        trades.append(trade)
-        position = 0.0
-        equity_values[-1] = capital
-    elif side == "short" and position > 0:
-        last_price = float(prices[-1])
-        capital, trade = _close_short(
-            position, entry_capital, entry_price, entry_date, entry_index,
-            last_price, str(dates[-1].date()), n - 1, dates, commission_pct, "end_of_data",
-        )
-        trades.append(trade)
-        position = 0.0
-        equity_values[-1] = capital
+        last_date  = str(dates[-1].date())
+        if side == "long":
+            pnl_usd = entry_oz * (last_price - entry_price)
+        else:
+            pnl_usd = entry_oz * (entry_price - last_price)
+        exit_comm = entry_oz * last_price * usd_jpy * commission_pct / 100
+        pnl_jpy   = pnl_usd * usd_jpy - exit_comm
+        capital_jpy += pnl_jpy
+        total_commission_jpy += exit_comm
+        pnl_pct_val = pnl_jpy / entry_capital_jpy * 100 if entry_capital_jpy > 0 else 0.0
+        duration = (dates[-1] - dates[entry_index]).days
+        trades.append(Trade(
+            entry_date=entry_date, exit_date=last_date,
+            entry_price=round(entry_price, 2), exit_price=round(last_price, 2),
+            lots=entry_lots, pnl=round(pnl_jpy, 0), pnl_pct=round(pnl_pct_val, 2),
+            exit_reason="end_of_data", duration_days=duration, side=side,
+        ))
+        equity_jpy[-1] = capital_jpy
 
-    # --- Metrics ---
-    equity_series = pd.Series(equity_values, index=df.index)
-    daily_returns = equity_series.pct_change().dropna()
-
-    total_return_pct = (equity_values[-1] - initial_capital) / initial_capital * 100
-    total_days = (dates[-1] - dates[0]).days
+    # ── Performance metrics ───────────────────────────────────────────────────
+    equity_series  = pd.Series(equity_jpy, index=df.index)
+    daily_returns  = equity_series.pct_change().dropna()
+    total_return_pct = (equity_jpy[-1] - initial_capital) / initial_capital * 100
+    total_days       = (dates[-1] - dates[0]).days
     annualised_return = _annualised_return(total_return_pct, total_days)
-    max_dd = _max_drawdown(equity_series)
-    sharpe = _sharpe_ratio(daily_returns, interval)
+    max_dd            = _max_drawdown(equity_series)
+    sharpe            = _sharpe_ratio(daily_returns, interval)
 
     winning_trades = [t for t in trades if t.pnl > 0]
-    losing_trades = [t for t in trades if t.pnl <= 0]
-    win_rate = (len(winning_trades) / len(trades) * 100) if trades else 0.0
-
+    losing_trades  = [t for t in trades if t.pnl <= 0]
+    win_rate     = len(winning_trades) / len(trades) * 100 if trades else 0.0
     gross_profit = sum(t.pnl for t in winning_trades)
-    gross_loss = abs(sum(t.pnl for t in losing_trades))
-    profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else float("inf")
-
-    avg_duration = (
-        sum(t.duration_days for t in trades) / len(trades) if trades else 0
-    )
+    gross_loss   = abs(sum(t.pnl for t in losing_trades))
+    profit_factor = gross_profit / gross_loss if gross_loss > 0 else float("inf")
+    avg_duration  = sum(t.duration_days for t in trades) / len(trades) if trades else 0.0
 
     summary = {
-        "total_return_pct": round(total_return_pct, 2),
-        "annualised_return_pct": round(annualised_return, 2),
-        "max_drawdown_pct": round(max_dd, 2),
-        "sharpe_ratio": round(sharpe, 3),
-        "win_rate_pct": round(win_rate, 2),
-        "profit_factor": round(profit_factor, 3) if math.isfinite(profit_factor) else None,
-        "num_trades": len(trades),
-        "num_winning": len(winning_trades),
-        "num_losing": len(losing_trades),
+        "total_return_pct":       round(total_return_pct, 2),
+        "annualised_return_pct":  round(annualised_return, 2),
+        "max_drawdown_pct":       round(max_dd, 2),
+        "sharpe_ratio":           round(sharpe, 3),
+        "win_rate_pct":           round(win_rate, 2),
+        "profit_factor":          round(profit_factor, 3) if math.isfinite(profit_factor) else None,
+        "num_trades":             len(trades),
+        "num_winning":            len(winning_trades),
+        "num_losing":             len(losing_trades),
         "avg_trade_duration_days": round(avg_duration, 1),
-        "initial_capital": initial_capital,
-        "final_capital": round(equity_values[-1], 2),
-        "commission_pct": commission_pct,
-        "total_commission": round(len(trades) * 2 * initial_capital * commission_pct / 100, 2),
-        "period": period,
-        "interval": interval,
+        "initial_capital":        round(initial_capital, 0),
+        "final_capital":          round(equity_jpy[-1], 0),
+        "commission_pct":         commission_pct,
+        "total_commission":       round(total_commission_jpy, 0),
+        "period":                 period,
+        "interval":               interval,
+        "usd_jpy":                usd_jpy,
     }
 
     equity_curve = [
-        {"date": str(dates[i].date()), "equity": round(equity_values[i], 2)}
+        {"date": str(dates[i].date()), "equity": round(equity_jpy[i], 0)}
         for i in range(n)
     ]
 
-    trades_list = [
-        {
-            "entry_date": t.entry_date,
-            "exit_date": t.exit_date,
-            "entry_price": round(t.entry_price, 2),
-            "exit_price": round(t.exit_price, 2) if t.exit_price else None,
-            "shares": round(t.shares, 6),
-            "pnl": round(t.pnl, 2),
-            "pnl_pct": round(t.pnl_pct, 2),
-            "exit_reason": t.exit_reason,
-            "duration_days": t.duration_days,
-            "side": t.side,
-        }
-        for t in trades
-    ]
-
-    # --- Price data for chart ---
-    # signal markers: long_entry=buy, short_entry=short, exits=sell/cover
     signal_map: dict[str, str] = {}
     for t in trades:
         if t.side == "long":
@@ -549,28 +512,42 @@ def run_backtest(config: dict[str, Any]) -> BacktestResult:
             if t.exit_date:
                 signal_map.setdefault(t.exit_date, "cover")
 
-    price_data = []
+    price_data_list = []
     for i in range(n):
         row = df.iloc[i]
         d = str(dates[i].date())
-        price_data.append(
-            {
-                "date": d,
-                "open": _safe_float(row["Open"]),
-                "high": _safe_float(row["High"]),
-                "low": _safe_float(row["Low"]),
-                "close": _safe_float(row["Close"]),
-                "volume": _safe_float(row["Volume"]),
-                "signal": signal_map.get(d),
-            }
-        )
+        price_data_list.append({
+            "date":   d,
+            "open":   _safe_float(row["Open"]),
+            "high":   _safe_float(row["High"]),
+            "low":    _safe_float(row["Low"]),
+            "close":  _safe_float(row["Close"]),
+            "volume": _safe_float(row["Volume"]),
+            "signal": signal_map.get(d),
+        })
 
-    indicators = build_indicator_overlays(df, entry_conditions, exit_conditions)
+    overlays = build_indicator_overlays(df, entry_conditions, exit_conditions)
+
+    trades_list = [
+        {
+            "entry_date":    t.entry_date,
+            "exit_date":     t.exit_date,
+            "entry_price":   t.entry_price,
+            "exit_price":    t.exit_price,
+            "lots":          t.lots,
+            "pnl":           t.pnl,
+            "pnl_pct":       t.pnl_pct,
+            "exit_reason":   t.exit_reason,
+            "duration_days": t.duration_days,
+            "side":          t.side,
+        }
+        for t in trades
+    ]
 
     return BacktestResult(
         summary=summary,
         equity_curve=equity_curve,
         trades=trades_list,
-        price_data=price_data,
-        indicators=indicators,
+        price_data=price_data_list,
+        indicators=overlays,
     )

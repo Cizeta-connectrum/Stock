@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { OptimizeRequest, OptimizeResultRow, OptimizeRun, StrategyConfig, ConditionSpec } from '../lib/api'
 import { runOptimizeStream, fetchOptimizeHistory, deleteOptimizeRun } from '../lib/api'
+import type { TradingSettings } from '../lib/settings'
 
 const PERIOD_OPTIONS = [
   { value: '3mo', label: '3ヶ月' },
@@ -112,7 +113,7 @@ function buildStrategyConfig(row: OptimizeResultRow, run: RunConfig, capital: nu
 
 function fmt(n: number, d = 2) { return n.toFixed(d) }
 function fmtCurrency(n: number) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
+  return new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY', maximumFractionDigits: 0 }).format(n)
 }
 
 function RankBadge({ rank }: { rank: number }) {
@@ -197,15 +198,11 @@ function ResultsTable({ rows, globalRank = false, runConfig, capital, onApply }:
 
 type MainView = 'current' | 'archive' | 'top'
 
-export default function Optimizer({ onApply }: { onApply?: (config: StrategyConfig) => void }) {
+export default function Optimizer({ onApply, settings }: { onApply?: (config: StrategyConfig) => void; settings: TradingSettings }) {
   const [indicator, setIndicator] = useState<IndicatorId>('SMA')
   const [period, setPeriod] = useState('1y')
   const [interval, setInterval] = useState('1d')
-  const [capital, setCapital] = useState(10000)
   const [tradingMode, setTradingMode] = useState<'long_only' | 'always_in'>('long_only')
-  const [stopLoss, setStopLoss] = useState(0)
-  const [takeProfit, setTakeProfit] = useState(0)
-  const [commission, setCommission] = useState(0.1)
   const [minTrades, setMinTrades] = useState(5)
 
   const [loading, setLoading] = useState(false)
@@ -235,11 +232,12 @@ export default function Optimizer({ onApply }: { onApply?: (config: StrategyConf
     const t0 = Date.now()
     const req: OptimizeRequest = {
       indicator, period, interval,
-      initial_capital: capital,
+      initial_capital: settings.initial_capital,
+      usd_jpy: settings.usd_jpy,
       trading_mode: tradingMode,
-      stop_loss_pct: stopLoss,
-      take_profit_pct: takeProfit,
-      commission_pct: commission,
+      stop_loss_pct: settings.stop_loss_pct,
+      take_profit_pct: settings.take_profit_pct,
+      commission_pct: settings.commission_pct,
       min_trades: minTrades,
       top_n: 20,
     }
@@ -328,10 +326,12 @@ export default function Optimizer({ onApply }: { onApply?: (config: StrategyConf
             </div>
           </div>
 
-          <div>
-            <label className="text-xs text-gray-400 block mb-1">初期資金 ($)</label>
-            <input type="number" value={capital} onChange={e => setCapital(Number(e.target.value))}
-              className="w-full bg-gray-700 text-white rounded px-2 py-1.5 text-sm" />
+          {/* Settings summary */}
+          <div className="bg-gray-700/40 rounded-lg px-3 py-2 text-xs text-gray-400 space-y-1">
+            <p className="text-gray-300 font-medium">取引設定（設定タブから変更）</p>
+            <p>証拠金: <span className="text-amber-400">¥{settings.initial_capital.toLocaleString('ja-JP')}</span></p>
+            <p>損切/利確: <span className="text-red-400">{settings.stop_loss_pct || '—'}%</span> / <span className="text-green-400">{settings.take_profit_pct || '—'}%</span></p>
+            <p>手数料: {settings.commission_pct}% · USD/JPY: {settings.usd_jpy}</p>
           </div>
 
           <div>
@@ -350,27 +350,10 @@ export default function Optimizer({ onApply }: { onApply?: (config: StrategyConf
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-xs text-gray-400 block mb-1">損切り (%)</label>
-              <input type="number" min="0" step="0.1" value={stopLoss} onChange={e => setStopLoss(Number(e.target.value))}
-                className="w-full bg-gray-700 text-white rounded px-2 py-1.5 text-sm" />
-            </div>
-            <div>
-              <label className="text-xs text-gray-400 block mb-1">利確 (%)</label>
-              <input type="number" min="0" step="0.1" value={takeProfit} onChange={e => setTakeProfit(Number(e.target.value))}
-                className="w-full bg-gray-700 text-white rounded px-2 py-1.5 text-sm" />
-            </div>
-            <div>
-              <label className="text-xs text-gray-400 block mb-1">手数料 (%)</label>
-              <input type="number" min="0" step="0.01" value={commission} onChange={e => setCommission(Number(e.target.value))}
-                className="w-full bg-gray-700 text-white rounded px-2 py-1.5 text-sm" />
-            </div>
-            <div>
-              <label className="text-xs text-gray-400 block mb-1">最低取引数</label>
-              <input type="number" min="1" value={minTrades} onChange={e => setMinTrades(Number(e.target.value))}
-                className="w-full bg-gray-700 text-white rounded px-2 py-1.5 text-sm" />
-            </div>
+          <div>
+            <label className="text-xs text-gray-400 block mb-1">最低取引数</label>
+            <input type="number" min="1" value={minTrades} onChange={e => setMinTrades(Number(e.target.value))}
+              className="w-full bg-gray-700 text-white rounded px-2 py-1.5 text-sm" />
           </div>
 
           {SCALPING_INDICATORS.has(indicator) && !['5m', '15m'].includes(interval) && (
@@ -463,8 +446,8 @@ export default function Optimizer({ onApply }: { onApply?: (config: StrategyConf
                   <div className="bg-gray-800 rounded-xl overflow-hidden">
                     <ResultsTable
                       rows={results}
-                      runConfig={{ indicator, period, interval, trading_mode: tradingMode, commission, stop_loss: stopLoss, take_profit: takeProfit }}
-                      capital={capital}
+                      runConfig={{ indicator, period, interval, trading_mode: tradingMode, commission: settings.commission_pct, stop_loss: settings.stop_loss_pct, take_profit: settings.take_profit_pct }}
+                      capital={settings.initial_capital}
                       onApply={onApply}
                     />
                   </div>
@@ -518,7 +501,7 @@ export default function Optimizer({ onApply }: { onApply?: (config: StrategyConf
                     <ResultsTable
                       rows={run.results}
                       runConfig={{ indicator: run.indicator, period: run.period, interval: run.interval, trading_mode: run.trading_mode as 'long_only' | 'always_in', commission: run.commission, stop_loss: run.stop_loss, take_profit: run.take_profit }}
-                      capital={capital}
+                      capital={settings.initial_capital}
                       onApply={onApply}
                     />
                   )}
@@ -541,7 +524,7 @@ export default function Optimizer({ onApply }: { onApply?: (config: StrategyConf
               </div>
             ) : (
               <div className="bg-gray-800 rounded-xl overflow-hidden">
-                <ResultsTable rows={combinedTop} globalRank capital={capital} onApply={onApply} />
+                <ResultsTable rows={combinedTop} globalRank capital={settings.initial_capital} onApply={onApply} />
               </div>
             )}
             <p className="text-xs text-gray-500">⚠ 異なる期間・インターバルで最適化した結果は直接比較できません。参考値としてご利用ください。</p>

@@ -13,7 +13,8 @@ export interface ConditionSpec {
 export interface StrategyConfig {
   period: string
   interval: string
-  initial_capital: number
+  initial_capital: number   // JPY
+  usd_jpy: number
   entry_conditions: ConditionSpec[]
   entry_logic: 'AND' | 'OR'
   exit_conditions: ConditionSpec[]
@@ -39,8 +40,8 @@ export interface Trade {
   exit_date: string
   entry_price: number
   exit_price: number
-  shares: number
-  pnl: number
+  lots: number
+  pnl: number       // JPY
   pnl_pct: number
   exit_reason: string
   duration_days: number
@@ -58,12 +59,13 @@ export interface BacktestSummary {
   num_winning: number
   num_losing: number
   avg_trade_duration_days: number
-  initial_capital: number
-  final_capital: number
+  initial_capital: number   // JPY
+  final_capital: number     // JPY
   commission_pct: number
-  total_commission: number
+  total_commission: number  // JPY
   period: string
   interval: string
+  usd_jpy: number
 }
 
 export interface BacktestResult {
@@ -93,10 +95,11 @@ export interface StrategiesResponse {
 }
 
 export interface OptimizeRequest {
-  indicator: 'SMA' | 'RSI' | 'BB'
+  indicator: string
   period: string
   interval: string
-  initial_capital: number
+  initial_capital: number   // JPY
+  usd_jpy: number
   trading_mode: 'long_only' | 'always_in'
   stop_loss_pct: number
   take_profit_pct: number
