@@ -67,7 +67,7 @@ def calc_stochastic(
     return {"k": k.fillna(50), "d": d.fillna(50)}
 
 
-
+def calc_bollinger_bands(
     series: pd.Series,
     period: int = 20,
     std_dev: float = 2.0,
